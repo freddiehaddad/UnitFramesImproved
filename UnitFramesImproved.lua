@@ -70,6 +70,409 @@ local function AbbreviateNumber(value)
 end
 
 -------------------------------------------------------------------------------
+-- MOVABLE FRAMES SYSTEM
+-------------------------------------------------------------------------------
+
+-- State variables
+local frameOverlays = {}
+local isUnlocked = false
+local pendingPositions = {}
+
+-- Default frame positions
+local defaultPositions = {
+	UFI_PlayerFrame = {
+		point = "TOPLEFT",
+		relativePoint = "TOPLEFT",
+		x = -19,
+		y = -4,
+	},
+	UFI_TargetFrame = {
+		point = "TOPLEFT",
+		relativePoint = "TOPLEFT",
+		x = 250,
+		y = -4,
+	},
+	UFI_FocusFrame = {
+		point = "TOPLEFT",
+		relativePoint = "TOPLEFT",
+		x = 250,
+		y = -250,
+	},
+}
+
+-- Initialize saved variables
+local function InitializeDatabase()
+	if not UnitFramesImprovedDB then
+		UnitFramesImprovedDB = {
+			version = "1.0.0",
+			isUnlocked = false,
+			positions = {},
+		}
+	end
+
+	-- Migrate old versions if needed
+	if not UnitFramesImprovedDB.version or UnitFramesImprovedDB.version < "1.0.0" then
+		UnitFramesImprovedDB.version = "1.0.0"
+	end
+end
+
+-- Validate position data
+local function ValidatePosition(pos)
+	if not pos then
+		return false
+	end
+	if type(pos.x) ~= "number" or type(pos.y) ~= "number" then
+		return false
+	end
+	if not pos.point or not pos.relativePoint then
+		return false
+	end
+
+	-- Check if position is within screen bounds (with some margin)
+	local screenWidth = GetScreenWidth()
+	local screenHeight = GetScreenHeight()
+
+	if pos.x < -300 or pos.x > screenWidth + 100 then
+		return false
+	end
+	if pos.y > 100 or pos.y < -screenHeight - 100 then
+		return false
+	end
+
+	return true
+end
+
+-- Check if frames can be repositioned
+local function CanRepositionFrames()
+	return not InCombatLockdown()
+end
+
+-- Save position for a frame
+local function SavePosition(frameName, point, relativePoint, x, y)
+	if not UnitFramesImprovedDB.positions then
+		UnitFramesImprovedDB.positions = {}
+	end
+
+	UnitFramesImprovedDB.positions[frameName] = {
+		point = point,
+		relativePoint = relativePoint,
+		x = x,
+		y = y,
+	}
+end
+
+-- Apply position to a frame
+local function ApplyPosition(frameName)
+	local frame = _G[frameName]
+	if not frame then
+		return
+	end
+
+	local pos = UnitFramesImprovedDB.positions[frameName]
+	if not pos or not ValidatePosition(pos) then
+		-- Use default position
+		pos = defaultPositions[frameName]
+		if not pos then
+			return
+		end
+	end
+
+	if CanRepositionFrames() then
+		frame:ClearAllPoints()
+		frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
+		pendingPositions[frameName] = nil
+
+		-- Sync overlay position to match frame
+		local overlay = frameOverlays[frameName]
+		if overlay then
+			overlay:ClearAllPoints()
+			overlay:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
+		end
+	else
+		-- Save for later
+		pendingPositions[frameName] = true
+	end
+end
+
+-- Apply all pending positions (called after combat ends)
+local function ApplyPendingPositions()
+	if not CanRepositionFrames() then
+		return
+	end
+
+	for frameName, _ in pairs(pendingPositions) do
+		ApplyPosition(frameName)
+	end
+
+	if next(pendingPositions) then
+		Print("Frame positions applied!")
+	end
+end
+
+-- Reset frame to default position
+local function ResetFramePosition(frameName)
+	local pos = defaultPositions[frameName]
+	if not pos then
+		Print("Unknown frame: " .. frameName)
+		return
+	end
+
+	SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y)
+	ApplyPosition(frameName)
+	Print("Reset " .. frameName .. " to default position")
+end
+
+-- Create overlay for a frame
+local function CreateOverlay(frame, frameName)
+	local overlay = CreateFrame("Frame", frameName .. "_Overlay", UIParent)
+	overlay:SetFrameStrata("HIGH")
+	overlay:SetFrameLevel(100)
+	overlay:EnableMouse(false)
+	overlay:SetMovable(true)
+	overlay:RegisterForDrag("LeftButton")
+	overlay:SetClampedToScreen(true)
+	overlay:Hide()
+
+	-- Match frame's size and position exactly
+	overlay:SetSize(frame:GetWidth(), frame:GetHeight())
+	overlay:SetScale(frame:GetScale())
+	local point, relativeTo, relativePoint, x, y = frame:GetPoint()
+	overlay:SetPoint(point, relativeTo, relativePoint, x, y)
+
+	-- Visual border
+	overlay.border = overlay:CreateTexture(nil, "OVERLAY")
+	overlay.border:SetAllPoints()
+	overlay.border:SetColorTexture(0, 1, 0, 0.5)
+
+	-- Label
+	overlay.label = overlay:CreateFontString(nil, "OVERLAY")
+	overlay.label:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+	overlay.label:SetPoint("CENTER")
+	overlay.label:SetText(frameName:gsub("UFI_", ""))
+
+	-- Store frame reference
+	overlay.secureFrame = frame
+	overlay.isDragging = false
+	overlay.dragStartX = 0
+	overlay.dragStartY = 0
+
+	-- Mouse down - prepare for drag
+	overlay:SetScript("OnMouseDown", function(self, button)
+		if button == "LeftButton" and isUnlocked then
+			self.isDragging = true
+			self.dragStartX, self.dragStartY = GetCursorPosition()
+			local scale = self:GetEffectiveScale()
+			self.dragStartX = self.dragStartX / scale
+			self.dragStartY = self.dragStartY / scale
+
+			local _, _, _, x, y = self:GetPoint()
+			self.startX = x
+			self.startY = y
+
+			-- Visual feedback
+			self:SetFrameLevel(110)
+			self.border:SetColorTexture(1, 1, 0, 0.7) -- Yellow while dragging
+		end
+	end)
+
+	-- Mouse up - finish drag
+	overlay:SetScript("OnMouseUp", function(self, button)
+		if button == "LeftButton" and self.isDragging then
+			self.isDragging = false
+
+			-- Reset frame level
+			self:SetFrameLevel(100)
+			self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
+
+			-- Get new position from overlay
+			local point, _, relativePoint, x, y = self:GetPoint()
+
+			-- Save position
+			SavePosition(frameName, point, relativePoint, x, y)
+
+			-- Try to apply to actual frame
+			if CanRepositionFrames() then
+				frame:ClearAllPoints()
+				frame:SetPoint(point, UIParent, relativePoint, x, y)
+				Print(frameName:gsub("UFI_", "") .. " position updated!")
+			else
+				pendingPositions[frameName] = true
+				self.border:SetColorTexture(1, 0.5, 0, 0.5) -- Orange for pending
+				Print(frameName:gsub("UFI_", "") .. " position saved! Will apply after combat.")
+			end
+		end
+	end)
+
+	-- Update position while dragging
+	overlay:SetScript("OnUpdate", function(self)
+		if self.isDragging then
+			-- Check if mouse button is still down
+			if not IsMouseButtonDown("LeftButton") then
+				-- Mouse was released, finish the drag
+				self.isDragging = false
+
+				-- Reset frame level
+				self:SetFrameLevel(100)
+				self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
+
+				-- Get new position from overlay
+				local point, _, relativePoint, x, y = self:GetPoint()
+
+				-- Save position
+				SavePosition(frameName, point, relativePoint, x, y)
+
+				-- Try to apply to actual frame
+				if CanRepositionFrames() then
+					frame:ClearAllPoints()
+					frame:SetPoint(point, UIParent, relativePoint, x, y)
+					Print(frameName:gsub("UFI_", "") .. " position updated!")
+				else
+					pendingPositions[frameName] = true
+					self.border:SetColorTexture(1, 0.5, 0, 0.5) -- Orange for pending
+					Print(frameName:gsub("UFI_", "") .. " position saved! Will apply after combat.")
+				end
+				return
+			end
+
+			local cursorX, cursorY = GetCursorPosition()
+			local scale = self:GetEffectiveScale()
+			cursorX = cursorX / scale
+			cursorY = cursorY / scale
+
+			local deltaX = cursorX - self.dragStartX
+			local deltaY = cursorY - self.dragStartY
+
+			local newX = self.startX + deltaX
+			local newY = self.startY + deltaY
+
+			self:ClearAllPoints()
+			self:SetPoint("TOPLEFT", UIParent, "TOPLEFT", newX, newY)
+		end
+	end)
+
+	-- Mouse enter/leave for better visual feedback
+	overlay:SetScript("OnEnter", function(self)
+		if isUnlocked and not self.isDragging then
+			self.border:SetColorTexture(0.5, 1, 0.5, 0.7) -- Brighter green on hover
+		end
+	end)
+
+	overlay:SetScript("OnLeave", function(self)
+		if isUnlocked and not self.isDragging then
+			self.border:SetColorTexture(0, 1, 0, 0.5) -- Normal green
+		end
+	end)
+
+	-- Store reference
+	frameOverlays[frameName] = overlay
+
+	return overlay
+end
+
+-- Unlock frames for movement
+local function UnlockFrames()
+	if InCombatLockdown() then
+		Print("|cffff0000Cannot unlock frames during combat!|r")
+		return
+	end
+
+	isUnlocked = true
+	UnitFramesImprovedDB.isUnlocked = true
+
+	for frameName, overlay in pairs(frameOverlays) do
+		overlay:Show()
+		overlay:EnableMouse(true)
+		overlay.border:SetColorTexture(0, 1, 0, 0.5) -- Green for unlocked
+	end
+
+	Print("Frames unlocked! Drag to reposition. Type /ufi lock to save.")
+end
+
+-- Lock frames and save positions
+local function LockFrames()
+	isUnlocked = false
+	UnitFramesImprovedDB.isUnlocked = false
+
+	-- Hide overlays
+	for _, overlay in pairs(frameOverlays) do
+		overlay:Hide()
+		overlay:EnableMouse(false)
+	end
+
+	-- Apply any pending positions if possible
+	if CanRepositionFrames() then
+		ApplyPendingPositions()
+		Print("Frames locked and positions saved!")
+	else
+		Print("Frames locked! Positions will apply after combat.")
+	end
+end
+
+-- Handle combat start
+local function OnCombatStart()
+	if isUnlocked then
+		-- Disable dragging during combat
+		for _, overlay in pairs(frameOverlays) do
+			overlay:EnableMouse(false)
+			overlay.border:SetColorTexture(1, 0, 0, 0.5) -- Red for locked
+			overlay.label:SetText(overlay.label:GetText() .. " (COMBAT)")
+		end
+		Print("|cffff8800Frame movement disabled during combat!|r")
+	end
+end
+
+-- Handle combat end
+local function OnCombatEnd()
+	-- Apply pending positions
+	ApplyPendingPositions()
+
+	-- Re-enable dragging if unlocked
+	if isUnlocked then
+		for _, overlay in pairs(frameOverlays) do
+			overlay:EnableMouse(true)
+			overlay.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
+			overlay.label:SetText(overlay.label:GetText():gsub(" %(COMBAT%)", ""))
+		end
+		Print("Frame movement re-enabled!")
+	end
+end
+
+-- Slash command handler
+SLASH_UFI1 = "/ufi"
+SlashCmdList["UFI"] = function(msg)
+	local cmd, arg = msg:match("^(%S*)%s*(.-)$")
+	cmd = cmd:lower()
+
+	if cmd == "unlock" then
+		UnlockFrames()
+	elseif cmd == "lock" then
+		LockFrames()
+	elseif cmd == "reset" then
+		if arg and arg ~= "" then
+			local frameName = "UFI_" .. arg:sub(1, 1):upper() .. arg:sub(2):lower() .. "Frame"
+			ResetFramePosition(frameName)
+		else
+			-- Reset all frames
+			for frameName, _ in pairs(defaultPositions) do
+				ResetFramePosition(frameName)
+			end
+		end
+	elseif cmd == "help" or cmd == "" then
+		Print("|cff00ff00UnitFramesImproved v1.0.0|r")
+		Print("Available commands:")
+		Print("  |cffffcc00/ufi unlock|r - Unlock frames for repositioning")
+		Print("  |cffffcc00/ufi lock|r - Lock frames and save positions")
+		Print("  |cffffcc00/ufi reset [frame]|r - Reset frame(s) to default position")
+		Print(
+			"    Examples: |cff888888/ufi reset player|r, |cff888888/ufi reset target|r, |cff888888/ufi reset|r (resets all)"
+		)
+		Print("  |cffffcc00/ufi help|r - Show this help message")
+	else
+		Print("Unknown command. Type |cffffcc00/ufi help|r for available commands.")
+	end
+end
+
+-------------------------------------------------------------------------------
 -- PLAYER FRAME CREATION
 -------------------------------------------------------------------------------
 
@@ -2177,6 +2580,9 @@ end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
+eventFrame:RegisterEvent("PLAYER_LOGOUT")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("UNIT_HEALTH")
 eventFrame:RegisterEvent("UNIT_MAXHEALTH")
 eventFrame:RegisterEvent("UNIT_POWER_FREQUENT")
@@ -2207,6 +2613,9 @@ eventFrame:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
 	if event == "PLAYER_LOGIN" then
+		-- Initialize database
+		InitializeDatabase()
+
 		-- Create frames on login
 		UFI_PlayerFrame = CreatePlayerFrame()
 		UFI_TargetFrame = CreateTargetFrame()
@@ -2232,6 +2641,24 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			TargetFrameToT:Hide()
 			TargetFrameToT:SetAlpha(0)
 		end
+
+		-- Apply saved positions FIRST
+		ApplyPosition("UFI_PlayerFrame")
+		ApplyPosition("UFI_TargetFrame")
+		ApplyPosition("UFI_FocusFrame")
+
+		-- Create overlays for movable frames AFTER positioning
+		CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
+		CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
+		CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
+
+		-- Restore unlocked state if it was unlocked
+		if UnitFramesImprovedDB.isUnlocked and not InCombatLockdown() then
+			UnlockFrames()
+		end
+
+		-- Display welcome message
+		Print("|cff00ff00UnitFramesImproved v1.0.0 loaded!|r Type |cffffcc00/ufi help|r for commands.")
 
 		-- Initial updates
 		UpdatePlayerHealth()
@@ -2602,6 +3029,23 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
 			UFI_FocusFrame.castBar.notInterruptible = true
 		end
+	elseif event == "PLAYER_LOGOUT" then
+		-- Save all frame positions before logout
+		for frameName, _ in pairs(defaultPositions) do
+			local frame = _G[frameName]
+			if frame then
+				local point, _, relativePoint, x, y = frame:GetPoint()
+				if point then
+					SavePosition(frameName, point, relativePoint, x, y)
+				end
+			end
+		end
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		-- Combat started
+		OnCombatStart()
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		-- Combat ended
+		OnCombatEnd()
 	end
 end)
 

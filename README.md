@@ -1,10 +1,10 @@
 # Unit Frames Improved
 
-![Version](https://img.shields.io/badge/version-1.3.3-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange.svg)
 ![Server](https://img.shields.io/badge/server-Ascension%20WR-purple.svg)
 
-A complete unit frame replacement addon for **Ascension's Warcraft Reborn** private server, featuring custom-designed frames with enhanced functionality, cast bars, debuff tracking, and right-click menus.
+A complete unit frame replacement addon for **Ascension's Warcraft Reborn** private server, featuring custom-designed frames with enhanced functionality, cast bars, debuff tracking, right-click menus, and **fully movable frames**.
 
 ## ✨ Features
 
@@ -57,6 +57,20 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Secure implementation** - No taint issues with focus clearing
 - All standard features (cast bar, debuffs, portrait, etc.)
 
+### 📍 Movable Frames
+
+- **Drag-to-Move** - Unlock frames to reposition them anywhere on screen
+- **Instant Response** - Smooth, lag-free dragging with pixel-perfect precision
+- **Visual Feedback** - Color-coded overlays (green=unlocked, yellow=dragging)
+- **Position Persistence** - Frame locations saved per character
+- **Combat Protection** - Frames auto-lock during combat to prevent taint
+- **Reset Options** - Restore default positions individually or all at once
+- **Slash Commands**:
+  - `/ufi unlock` - Enable frame repositioning
+  - `/ufi lock` - Lock frames and save positions
+  - `/ufi reset [frame]` - Reset to defaults (player/target/focus/all)
+  - `/ufi help` - Display all commands
+
 ## 📦 Installation
 
 1. **Download** the addon files
@@ -96,6 +110,39 @@ UnitFramesImproved/
 - **Focus frame** appears when you set a focus target
 - **Target of Target** displays when your target has a target
 
+### Slash Commands
+
+Type `/ufi help` in-game to see all available commands:
+
+- **`/ufi unlock`** - Unlock frames for repositioning
+  - Green overlays appear on player, target, and focus frames
+  - Click and drag any frame to move it
+  - Frames turn yellow while dragging for visual feedback
+  
+- **`/ufi lock`** - Lock frames and save positions
+  - Saves current positions permanently
+  - Overlays disappear and frames are locked in place
+  
+- **`/ufi reset [frame]`** - Reset frame positions to defaults
+  - `/ufi reset player` - Reset only the player frame
+  - `/ufi reset target` - Reset only the target frame
+  - `/ufi reset focus` - Reset only the focus frame
+  - `/ufi reset` - Reset all frames to defaults
+  
+- **`/ufi help`** - Display command help
+
+### Frame Positioning
+
+1. Type `/ufi unlock` to enable repositioning mode
+2. Green overlays appear on movable frames
+3. Click and drag any frame to your desired position
+4. Frames turn yellow while dragging for visual feedback
+5. Release to place the frame
+6. Type `/ufi lock` to save positions and disable repositioning
+7. Positions are automatically saved per character
+
+**Note**: Frames automatically lock during combat to prevent taint issues.
+
 ### Focus Management
 
 - **Set Focus**: Use the standard `/focus` command or Focus Target keybind
@@ -122,6 +169,13 @@ UnitFramesImproved/
 - Secure attributes for focus clearing (`*type2 = "clearfocus"`)
 - No protected function taint issues
 - Menu items filtered to avoid taint-causing operations
+- Combat detection prevents frame repositioning during encounters
+
+### Saved Variables
+
+- **Per-character positions** - Each character has their own frame layout
+- **Position validation** - Out-of-bounds positions automatically reset to defaults
+- **Lock state persistence** - Remembers if frames were unlocked (restores on login if not in combat)
 
 ### Performance
 
@@ -129,6 +183,7 @@ UnitFramesImproved/
 - Default Blizzard frames completely disabled (unregistered events)
 - Optimized debuff sorting and display
 - Smooth animations without frame rate impact
+- Instant drag response with custom mouse tracking
 
 ### Compatibility
 
@@ -136,24 +191,7 @@ UnitFramesImproved/
 - **OmniCC Support**: Cooldown numbers work automatically if installed
 - Replaces default Blizzard unit frames completely
 
-## 🚀 Upcoming Features
-
-> **Future Version Roadmap**
-
-### Frame Positioning
-
-- **Drag-to-move functionality** - Reposition frames anywhere on screen
-- **Saved positions** - Frame locations persist between sessions
-- **Reset to defaults** - Restore original positions with one click
-
-### Enhanced Focus Controls
-
-- **Ctrl+Click to Set/Clear Focus** - Direct frame interaction for focus management
-- **Quick focus swapping** - Easier focus target workflows for PvP and raids
-
-Stay tuned for these exciting updates!
-
-## 🐛 Known Issues
+## Known Issues
 
 - Reset Instances menu option shows confirmation but reset behavior depends on server implementation
 - Some Blizzard global strings may not be localized in all languages
