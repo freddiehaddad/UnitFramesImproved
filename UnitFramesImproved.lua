@@ -1711,11 +1711,11 @@ local function CreateTargetOfTargetFrame()
 
 	-- Enable mouse clicks
 	frame:EnableMouse(true)
-	frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	frame:RegisterForClicks("AnyUp")
 
 	-- Set unit for secure click handling
 	frame:SetAttribute("unit", "targettarget")
-	frame:SetAttribute("*type1", "target") -- Left click = target the unit
+	frame:SetAttribute("type1", "target") -- Left click = target the unit
 
 	-- Use RegisterStateDriver for secure show/hide based on targettarget existence
 	RegisterStateDriver(frame, "visibility", "[target=targettarget,exists] show; hide")
