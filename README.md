@@ -11,8 +11,8 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 ### 🎯 Complete Frame Suite
 
 - **Player Frame** - Enhanced health/power display with resting indicator, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
-- **Target Frame** - Elite/rare detection, classification visuals, and comprehensive interaction menu
-- **Focus Frame** - Dedicated focus target tracking with right-click to clear focus
+- **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
+- **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and right-click to clear focus
 - **Target of Target** - See what your target is targeting at a glance
 
 ### 🎨 Visual Enhancements
@@ -33,10 +33,10 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
   - Interrupt-able indicators (shield icon when not interruptible)
   - Spell names and cast times
   - Smooth progress animations
-- **Debuff Tracking** - Priority-based debuff display
-  - Your debuffs shown first
-  - Color-coded borders by debuff type (poison, disease, curse, magic)
-  - Stack counts and cooldown spirals (OmniCC compatible)
+- **Debuff Tracking** - Slim, player-focused aura rows
+  - Target and focus frames show buffs plus only your (player/pet/vehicle) debuffs
+  - Debuff row slides up when no buffs are active to avoid awkward gaps
+  - Color-coded borders by debuff type with stack counts and OmniCC-friendly cooldown spirals
 
 ### 🖱️ Right-Click Menus
 

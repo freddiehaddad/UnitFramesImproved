@@ -208,6 +208,22 @@ local function CreateAuraRow(parent, rowOptions)
 	return icons
 end
 
+local function SetAuraRowAnchor(row, anchor)
+	if not row or not row[1] or not anchor then
+		return
+	end
+
+	local firstIcon = row[1]
+	local point = anchor.point or "TOPLEFT"
+	local relativePoint = anchor.relativePoint or point
+	local xOffset = anchor.x or 0
+	local yOffset = anchor.y or 0
+	local relativeTo = anchor.relativeTo or firstIcon:GetParent()
+
+	firstIcon:ClearAllPoints()
+	firstIcon:SetPoint(point, relativeTo, relativePoint, xOffset, yOffset)
+end
+
 local RAID_TARGET_ICON_OPTIONS = {
 	{ name = RAID_TARGET_1, index = 1, r = 1.0, g = 1.0, b = 0.0 },
 	{ name = RAID_TARGET_2, index = 2, r = 1.0, g = 0.5, b = 0.0 },
@@ -1440,30 +1456,29 @@ local function CreateTargetFrame()
 		},
 	})
 
-	frame.debuffs = CreateAuraRow(frame, {
-		count = 5,
-		size = 18,
-		spacing = 2,
-		anchor = {
+	frame.debuffRowAnchors = {
+		withBuffs = {
 			point = "TOPLEFT",
 			relativeTo = frame.buffs[1],
 			relativePoint = "BOTTOMLEFT",
 			x = 0,
-			y = -2,
+			y = -1,
 		},
-	})
+		withoutBuffs = {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "BOTTOMLEFT",
+			x = 28,
+			y = 41,
+		},
+		current = "withBuffs",
+	}
 
-	frame.myDebuffs = CreateAuraRow(frame, {
+	frame.debuffs = CreateAuraRow(frame, {
 		count = 5,
 		size = 20,
 		spacing = 2,
-		anchor = {
-			point = "TOPLEFT",
-			relativeTo = frame.debuffs[1],
-			relativePoint = "BOTTOMLEFT",
-			x = 0,
-			y = -2,
-		},
+		anchor = frame.debuffRowAnchors.withBuffs,
 	})
 
 	-- Enable mouse clicks and set up secure click handling
@@ -1616,30 +1631,29 @@ local function CreateFocusFrame()
 		},
 	})
 
-	frame.debuffs = CreateAuraRow(frame, {
-		count = 5,
-		size = 18,
-		spacing = 2,
-		anchor = {
+	frame.debuffRowAnchors = {
+		withBuffs = {
 			point = "TOPLEFT",
 			relativeTo = frame.buffs[1],
 			relativePoint = "BOTTOMLEFT",
 			x = 0,
 			y = -2,
 		},
-	})
+		withoutBuffs = {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "BOTTOMLEFT",
+			x = 28,
+			y = 40,
+		},
+		current = "withBuffs",
+	}
 
-	frame.myDebuffs = CreateAuraRow(frame, {
+	frame.debuffs = CreateAuraRow(frame, {
 		count = 5,
 		size = 20,
 		spacing = 2,
-		anchor = {
-			point = "TOPLEFT",
-			relativeTo = frame.debuffs[1],
-			relativePoint = "BOTTOMLEFT",
-			x = 0,
-			y = -2,
-		},
+		anchor = frame.debuffRowAnchors.withBuffs,
 	})
 
 	-- Enable mouse clicks
@@ -2258,12 +2272,6 @@ local function HideAuraRows(frame)
 			frame.debuffs[i]:Hide()
 		end
 	end
-
-	if frame.myDebuffs then
-		for i = 1, #frame.myDebuffs do
-			frame.myDebuffs[i]:Hide()
-		end
-	end
 end
 
 local function SortByRemainingTime(a, b)
@@ -2277,6 +2285,10 @@ local function UpdateUnitAuras(unit, frame)
 
 	if not UnitExists(unit) then
 		HideAuraRows(frame)
+		if frame.debuffRowAnchors and frame.debuffRowAnchors.current ~= "withBuffs" then
+			SetAuraRowAnchor(frame.debuffs, frame.debuffRowAnchors.withBuffs)
+			frame.debuffRowAnchors.current = "withBuffs"
+		end
 		return
 	end
 
@@ -2305,6 +2317,7 @@ local function UpdateUnitAuras(unit, frame)
 
 	table.sort(allBuffs, SortByRemainingTime)
 
+	local buffsShown = 0
 	if frame.buffs then
 		for i = 1, #frame.buffs do
 			local buffFrame = frame.buffs[i]
@@ -2321,56 +2334,51 @@ local function UpdateUnitAuras(unit, frame)
 					buffFrame.count:Hide()
 				end
 				buffFrame:Show()
+				buffsShown = buffsShown + 1
 			else
 				buffFrame:Hide()
 			end
 		end
 	end
 
-	local myDebuffs = {}
-	local otherDebuffs = {}
+	local playerDebuffs = {}
 	for i = 1, 40 do
 		local name, _, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff(unit, i)
 		if not name then
 			break
 		end
 
-		local remainingTime = 999999
-		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - now
-		end
+		if caster == "player" or caster == "pet" or caster == "vehicle" then
+			local remainingTime = 999999
+			if duration and duration > 0 and expirationTime then
+				remainingTime = expirationTime - now
+			end
 
-		local debuffData = {
-			icon = icon,
-			count = count,
-			debuffType = debuffType,
-			duration = duration,
-			expirationTime = expirationTime,
-			remainingTime = remainingTime,
-		}
-
-		if caster == "player" then
-			myDebuffs[#myDebuffs + 1] = debuffData
-		else
-			otherDebuffs[#otherDebuffs + 1] = debuffData
+			playerDebuffs[#playerDebuffs + 1] = {
+				icon = icon,
+				count = count,
+				debuffType = debuffType,
+				duration = duration,
+				expirationTime = expirationTime,
+				remainingTime = remainingTime,
+			}
 		end
 	end
 
-	table.sort(myDebuffs, SortByRemainingTime)
-	table.sort(otherDebuffs, SortByRemainingTime)
+	table.sort(playerDebuffs, SortByRemainingTime)
 
-	local allDebuffs = {}
-	for _, debuff in ipairs(myDebuffs) do
-		allDebuffs[#allDebuffs + 1] = debuff
-	end
-	for _, debuff in ipairs(otherDebuffs) do
-		allDebuffs[#allDebuffs + 1] = debuff
+	if frame.debuffRowAnchors then
+		local desired = buffsShown > 0 and "withBuffs" or "withoutBuffs"
+		if frame.debuffRowAnchors.current ~= desired then
+			SetAuraRowAnchor(frame.debuffs, frame.debuffRowAnchors[desired])
+			frame.debuffRowAnchors.current = desired
+		end
 	end
 
 	if frame.debuffs then
 		for i = 1, #frame.debuffs do
 			local debuffFrame = frame.debuffs[i]
-			local data = allDebuffs[i]
+			local data = playerDebuffs[i]
 			if data then
 				debuffFrame.icon:SetTexture(data.icon)
 				local color = DebuffTypeColor[data.debuffType or "none"] or DebuffTypeColor["none"]
@@ -2391,12 +2399,6 @@ local function UpdateUnitAuras(unit, frame)
 			else
 				debuffFrame:Hide()
 			end
-		end
-	end
-
-	if frame.myDebuffs then
-		for i = 1, #frame.myDebuffs do
-			frame.myDebuffs[i]:Hide()
 		end
 	end
 end
