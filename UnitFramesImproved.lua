@@ -108,7 +108,8 @@ local function CreateStatusBar(parent, size, anchor)
 	bar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
 	bar:SetMinMaxValues(0, 100)
 	bar:SetValue(100)
-	bar:SetFrameLevel(parent:GetFrameLevel() - 1)
+	local parentLevel = parent:GetFrameLevel() or 0
+	bar:SetFrameLevel(math.max(parentLevel - 1, 0))
 
 	local bg = bar:CreateTexture(nil, "BACKGROUND")
 	bg:SetTexture(0, 0, 0, 0.35)
@@ -837,10 +838,16 @@ local function CreatePlayerFrame()
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4) -- Default Blizzard PlayerFrame position
 	frame:SetFrameStrata("MEDIUM")
-	frame:SetFrameLevel(1)
+	frame:SetFrameLevel(5)
 	frame:SetScale(1.15) -- Slightly larger than default
 
-	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+	local visual = CreateFrame("Frame", nil, frame)
+	visual:SetAllPoints(frame)
+	visual:SetFrameStrata("MEDIUM")
+	visual:SetFrameLevel(frame:GetFrameLevel() + 15)
+	frame.visualLayer = visual
+
+	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -848,7 +855,7 @@ local function CreatePlayerFrame()
 		y = -20,
 	})
 
-	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+	frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -856,9 +863,9 @@ local function CreatePlayerFrame()
 		y = -46,
 	})
 
-	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.player, { mirror = true })
+	frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true })
 
-	frame.portrait = CreatePortrait(frame, {
+	frame.portrait = CreatePortrait(visual, {
 		point = "CENTER",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -867,11 +874,11 @@ local function CreatePlayerFrame()
 	})
 	SetPortraitTexture(frame.portrait, "player")
 
-	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
+	frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
 	frame.portraitMask:SetBlendMode("BLEND")
 
 	-- Level/Rest indicator text (displayed in the circular area at bottom left of portrait)
-	frame.levelText = CreateFontString(frame, {
+	frame.levelText = CreateFontString(visual, {
 		point = "CENTER",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -882,6 +889,7 @@ local function CreatePlayerFrame()
 		drawLayer = 0,
 		color = { r = 1, g = 0.82, b = 0 },
 	})
+	frame.levelText:SetParent(visual)
 
 	-- Unit name (OVERLAY layer - drawn on top of everything)
 	frame.nameText = CreateFontString(frame.healthBar, {
@@ -937,6 +945,9 @@ local function CreatePlayerFrame()
 			y = 4,
 		},
 	})
+	for i = 1, #frame.selfBuffs do
+		frame.selfBuffs[i]:SetParent(visual)
+	end
 	for i = 1, #frame.selfBuffs do
 		frame.selfBuffs[i].border:SetVertexColor(1, 1, 1)
 	end
@@ -1341,7 +1352,7 @@ local function CreateTargetFrame()
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -4) -- Default Blizzard TargetFrame position
 	frame:SetFrameStrata("MEDIUM")
-	frame:SetFrameLevel(1)
+	frame:SetFrameLevel(10)
 	frame:SetScale(1.15)
 
 	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
@@ -1695,10 +1706,17 @@ local function CreateTargetOfTargetFrame()
 	frame:SetSize(232, 100) -- Same as player frame
 	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 95, 80) -- Below target portrait
 	frame:SetFrameStrata("MEDIUM")
-	frame:SetFrameLevel(1)
+	local targetFrameLevel = UFI_TargetFrame:GetFrameLevel() or 1
+	frame:SetFrameLevel(targetFrameLevel + 5)
 	frame:SetScale(0.6) -- Scale to 50% (half size)
 
-	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+	local visual = CreateFrame("Frame", nil, frame)
+	visual:SetAllPoints(frame)
+	visual:SetFrameStrata("MEDIUM")
+	visual:SetFrameLevel(math.max(targetFrameLevel - 1, 0))
+	frame.visualLayer = visual
+
+	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -1706,7 +1724,7 @@ local function CreateTargetOfTargetFrame()
 		y = -20,
 	})
 
-	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+	frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -1714,9 +1732,9 @@ local function CreateTargetOfTargetFrame()
 		y = -46,
 	})
 
-	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { mirror = true })
+	frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.default, { mirror = true })
 
-	frame.portrait = CreatePortrait(frame, {
+	frame.portrait = CreatePortrait(visual, {
 		point = "CENTER",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
@@ -1724,7 +1742,7 @@ local function CreateTargetOfTargetFrame()
 		y = -38,
 	})
 
-	frame.nameText = CreateFontString(frame, {
+	frame.nameText = CreateFontString(visual, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
@@ -1736,7 +1754,7 @@ local function CreateTargetOfTargetFrame()
 	})
 	frame.nameText:SetText("")
 
-	frame.levelText = CreateFontString(frame, {
+	frame.levelText = CreateFontString(visual, {
 		point = "CENTER",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
