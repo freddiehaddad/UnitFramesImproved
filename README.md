@@ -22,6 +22,10 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Color-Coded Power Bars** - Mana, rage, energy, focus, and runic power with proper colors
 - **Elite/Rare Indicators** - Gold elite, silver rare, and rare-elite dragon borders
 - **Level Indicators** - Color-coded level text (grey, yellow, orange, red) based on difficulty
+- **Status Text Integration** - Seamlessly integrates with WoW's Interface Options "Display Percentages" setting
+  - Shows percentages (e.g., "75%") or numeric values (e.g., "15.2k / 20.3k")
+  - Updates instantly when toggled in Interface Options → Status Text
+  - No reload required - changes apply immediately
 
 ### ⚔️ Combat Features
 
@@ -154,6 +158,18 @@ Type `/ufi help` in-game to see all available commands:
 - **Right-click Target Frame**: Full interaction menu (whisper, trade, invite, etc.)
 - **Raid Target Icons**: Color-coded with icon previews, checkmarks show current selection
 
+### Status Text Display
+
+The addon respects WoW's native "Display Percentages" setting:
+
+1. Open Interface Options (Esc → Interface)
+2. Navigate to **Status Text** panel
+3. Check or uncheck **"Display Percentages"**
+4. Your unit frames update instantly:
+   - **Checked**: Shows percentages (e.g., "75%" health/power)
+   - **Unchecked**: Shows numeric values (e.g., "15.2k / 20.3k")
+5. No `/reload` required - changes apply immediately to all frames
+
 ### Difficulty Changes
 
 1. Right-click your player frame
@@ -170,6 +186,7 @@ Type `/ufi help` in-game to see all available commands:
 - No protected function taint issues
 - Menu items filtered to avoid taint-causing operations
 - Combat detection prevents frame repositioning during encounters
+- **Secure hook integration** - Uses `hooksecurefunc` to detect CVar changes from Interface Options without polling
 
 ### Saved Variables
 

@@ -1775,6 +1775,26 @@ end
 -- PLAYER FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
 
+-- Helper function to format health/power text based on interface options
+local function FormatStatusText(current, max)
+	-- Check if "Display Percentages" is checked in Interface Options > Status Text
+	-- The CVar is "statusTextPercentage" and is "1" when checked, "0" when unchecked
+	local statusTextPercentage = GetCVar("statusTextPercentage")
+	
+	-- Check if percentages are enabled
+	if statusTextPercentage == "1" then
+		-- Show percentage
+		local percent = 0
+		if max > 0 then
+			percent = math.floor((current / max) * 100)
+		end
+		return percent .. "%"
+	else
+		-- Show numeric values
+		return AbbreviateNumber(current) .. " / " .. AbbreviateNumber(max)
+	end
+end
+
 local function UpdatePlayerHealth()
 	if not UFI_PlayerFrame then
 		return
@@ -1791,8 +1811,7 @@ local function UpdatePlayerHealth()
 	UFI_PlayerFrame.healthBar:SetStatusBarColor(r, g, b)
 
 	-- Set text
-	local healthText = AbbreviateNumber(health) .. " / " .. AbbreviateNumber(maxHealth)
-	UFI_PlayerFrame.healthText:SetText(healthText)
+	UFI_PlayerFrame.healthText:SetText(FormatStatusText(health, maxHealth))
 end
 
 local function UpdatePlayerPower()
@@ -1817,8 +1836,7 @@ local function UpdatePlayerPower()
 	end
 
 	-- Set text
-	local powerText = AbbreviateNumber(power) .. " / " .. AbbreviateNumber(maxPower)
-	UFI_PlayerFrame.powerText:SetText(powerText)
+	UFI_PlayerFrame.powerText:SetText(FormatStatusText(power, maxPower))
 end
 
 local function UpdatePlayerPortrait()
@@ -1888,8 +1906,7 @@ local function UpdateTargetHealth()
 		UFI_TargetFrame.deadText:Hide()
 		UFI_TargetFrame.healthText:Show()
 		-- Set text
-		local healthText = AbbreviateNumber(health) .. " / " .. AbbreviateNumber(maxHealth)
-		UFI_TargetFrame.healthText:SetText(healthText)
+		UFI_TargetFrame.healthText:SetText(FormatStatusText(health, maxHealth))
 	end
 end
 
@@ -1925,8 +1942,7 @@ local function UpdateTargetPower()
 	end
 
 	-- Set text
-	local powerText = AbbreviateNumber(power) .. " / " .. AbbreviateNumber(maxPower)
-	UFI_TargetFrame.powerText:SetText(powerText)
+	UFI_TargetFrame.powerText:SetText(FormatStatusText(power, maxPower))
 end
 
 local function UpdateTargetPortrait()
@@ -2136,8 +2152,7 @@ local function UpdateFocusHealth()
 		UFI_FocusFrame.deadText:Hide()
 		UFI_FocusFrame.healthText:Show()
 		-- Set text
-		local healthText = AbbreviateNumber(health) .. " / " .. AbbreviateNumber(maxHealth)
-		UFI_FocusFrame.healthText:SetText(healthText)
+		UFI_FocusFrame.healthText:SetText(FormatStatusText(health, maxHealth))
 	end
 end
 
@@ -2173,8 +2188,7 @@ local function UpdateFocusPower()
 	end
 
 	-- Set text
-	local powerText = AbbreviateNumber(power) .. " / " .. AbbreviateNumber(maxPower)
-	UFI_FocusFrame.powerText:SetText(powerText)
+	UFI_FocusFrame.powerText:SetText(FormatStatusText(power, maxPower))
 end
 
 local function UpdateFocusPortrait()
@@ -2651,6 +2665,26 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
 		CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
 		CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
+
+		-- Hook into SetCVar to detect changes from Interface Options
+		-- The Interface Options UI uses the old SetCVar() function which doesn't
+		-- trigger CVAR_UPDATE events. Only C_CVar.SetCVar() triggers that event.
+		-- This hook allows us to detect changes immediately without polling.
+		hooksecurefunc("SetCVar", function(name, value)
+			if name == "statusTextPercentage" then
+				-- Update all visible frames when percentage display setting changes
+				UpdatePlayerHealth()
+				UpdatePlayerPower()
+				if UnitExists("target") then
+					UpdateTargetHealth()
+					UpdateTargetPower()
+				end
+				if UnitExists("focus") then
+					UpdateFocusHealth()
+					UpdateFocusPower()
+				end
+			end
+		end)
 
 		-- Restore unlocked state if it was unlocked
 		if UnitFramesImprovedDB.isUnlocked and not InCombatLockdown() then
