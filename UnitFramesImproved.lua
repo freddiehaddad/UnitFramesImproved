@@ -70,6 +70,336 @@ local function AbbreviateNumber(value)
 end
 
 -------------------------------------------------------------------------------
+-- SHARED CONSTANTS AND HELPERS
+-------------------------------------------------------------------------------
+
+local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
+
+local FRAME_TEXTURES = {
+	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
+	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
+	elite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite",
+	rare = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
+	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
+}
+
+local function CreateStatusBar(parent, size, anchor)
+	local bar = CreateFrame("StatusBar", nil, parent)
+	bar:SetSize(size.width, size.height)
+	local point = (anchor and anchor.point) or "CENTER"
+	local relativeTo = (anchor and anchor.relativeTo) or parent
+	local relativePoint = (anchor and anchor.relativePoint) or point
+	local offsetX = (anchor and anchor.x) or 0
+	local offsetY = (anchor and anchor.y) or 0
+	bar:SetPoint(point, relativeTo, relativePoint, offsetX, offsetY)
+	bar:SetStatusBarTexture(STATUSBAR_TEXTURE)
+	bar:GetStatusBarTexture():SetHorizTile(false)
+	bar:GetStatusBarTexture():SetVertTile(false)
+	bar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	bar:SetMinMaxValues(0, 100)
+	bar:SetValue(100)
+	bar:SetFrameLevel(parent:GetFrameLevel() - 1)
+
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetTexture(0, 0, 0, 0.35)
+	bg:SetAllPoints(bar)
+	bar.bg = bg
+
+	if bar.SetBackdrop then
+		bar:SetBackdrop(nil)
+	end
+
+	return bar
+end
+
+local function AttachFrameTexture(frame, texturePath, opts)
+	local layer = opts and opts.layer or "BORDER"
+	local subLevel = opts and opts.subLevel or 0
+	local texture = frame:CreateTexture(nil, layer, nil, subLevel)
+	texture:SetTexture(texturePath)
+	texture:SetSize(opts and opts.width or 232, opts and opts.height or 110)
+	local point = opts and opts.point or "TOPLEFT"
+	local relativeTo = opts and opts.relativeTo or frame
+	local relativePoint = opts and opts.relativePoint or point
+	local offsetX = opts and opts.x or 0
+	local offsetY = opts and opts.y or 0
+	texture:SetPoint(point, relativeTo, relativePoint, offsetX, offsetY)
+	if opts and opts.mirror then
+		texture:SetTexCoord(1, 0, 0, 1)
+	end
+	return texture
+end
+
+local function CreateFontString(parent, fontOptions)
+	local fontString = parent:CreateFontString(nil, "OVERLAY")
+	fontString:SetFont(fontOptions.path or FONT_DEFAULT, fontOptions.size, fontOptions.flags or "OUTLINE")
+	local relativeTo = fontOptions.relativeTo or parent
+	local relativePoint = fontOptions.relativePoint or fontOptions.point
+	fontString:SetPoint(fontOptions.point, relativeTo, relativePoint, fontOptions.x or 0, fontOptions.y or 0)
+	if fontOptions.color then
+		fontString:SetTextColor(fontOptions.color.r, fontOptions.color.g, fontOptions.color.b)
+	end
+	fontString:SetDrawLayer("OVERLAY", fontOptions.drawLayer or 7)
+	return fontString
+end
+
+local function CreatePortrait(frame, opts)
+	local portrait = frame:CreateTexture(nil, "BACKGROUND", nil, 5)
+	portrait:SetSize(opts.width or 50, opts.height or 48)
+	portrait:SetPoint(opts.point, opts.relativeTo or frame, opts.relativePoint or opts.point, opts.x or 0, opts.y or 0)
+	local crop = opts.crop or 0.08
+	portrait:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
+	return portrait
+end
+
+local function CreateAuraIcon(parent, size)
+	local iconFrame = CreateFrame("Frame", nil, parent)
+	iconFrame:SetSize(size, size)
+
+	iconFrame.icon = iconFrame:CreateTexture(nil, "ARTWORK")
+	iconFrame.icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 1, -1)
+	iconFrame.icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -1, 1)
+	iconFrame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+	iconFrame.border = iconFrame:CreateTexture(nil, "OVERLAY")
+	iconFrame.border:SetAllPoints()
+	iconFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+	iconFrame.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+
+	iconFrame.cooldown = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
+	iconFrame.cooldown:SetAllPoints()
+
+	iconFrame.count = iconFrame:CreateFontString(nil, "OVERLAY")
+	iconFrame.count:SetFont(FONT_DEFAULT, 10, "OUTLINE")
+	iconFrame.count:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", 0, 0)
+
+	iconFrame:Hide()
+	return iconFrame
+end
+
+local function CreateAuraRow(parent, rowOptions)
+	local icons = {}
+	for i = 1, rowOptions.count do
+		local icon = CreateAuraIcon(parent, rowOptions.size)
+		if i == 1 then
+			local anchor = rowOptions.anchor
+			icon:SetPoint(
+				anchor.point,
+				anchor.relativeTo or parent,
+				anchor.relativePoint or anchor.point,
+				anchor.x or 0,
+				anchor.y or 0
+			)
+		else
+			icon:SetPoint("LEFT", icons[i - 1], "RIGHT", rowOptions.spacing or 2, 0)
+		end
+		icons[i] = icon
+	end
+	return icons
+end
+
+local RAID_TARGET_ICON_OPTIONS = {
+	{ name = RAID_TARGET_1, index = 1, r = 1.0, g = 1.0, b = 0.0 },
+	{ name = RAID_TARGET_2, index = 2, r = 1.0, g = 0.5, b = 0.0 },
+	{ name = RAID_TARGET_3, index = 3, r = 0.6, g = 0.4, b = 1.0 },
+	{ name = RAID_TARGET_4, index = 4, r = 0.0, g = 1.0, b = 0.0 },
+	{ name = RAID_TARGET_5, index = 5, r = 0.7, g = 0.7, b = 0.7 },
+	{ name = RAID_TARGET_6, index = 6, r = 0.0, g = 0.5, b = 1.0 },
+	{ name = RAID_TARGET_7, index = 7, r = 1.0, g = 0.0, b = 0.0 },
+	{ name = RAID_TARGET_8, index = 8, r = 1.0, g = 1.0, b = 1.0 },
+}
+
+local function CreateUnitInteractionDropdown(unit, dropdownName, options)
+	local fallbackTitle = (options and options.fallbackTitle) or unit
+	local extraLevel1Buttons = options and options.extraLevel1Buttons
+	local level1Builder = options and options.level1Builder
+
+	local level2Handlers
+	if options then
+		local provided = options.level2Handlers
+		local legacy = options.extraLevel2Handlers
+		if provided and legacy and provided ~= legacy then
+			level2Handlers = {}
+			for key, handler in pairs(legacy) do
+				level2Handlers[key] = handler
+			end
+			for key, handler in pairs(provided) do
+				level2Handlers[key] = handler
+			end
+		else
+			level2Handlers = provided or legacy
+		end
+	end
+
+	local dropdown = CreateFrame("Frame", dropdownName, UIParent, "UIDropDownMenuTemplate")
+	dropdown.displayMode = "MENU"
+
+	local function AddButton(level, builder)
+		local info = UIDropDownMenu_CreateInfo()
+		builder(info)
+		UIDropDownMenu_AddButton(info, level)
+	end
+
+	local function AddRaidTargetMenu(level)
+		local currentTarget = GetRaidTargetIndex(unit)
+
+		for _, icon in ipairs(RAID_TARGET_ICON_OPTIONS) do
+			local iconIndex = icon.index
+			local iconName = icon.name
+			local r, g, b = icon.r, icon.g, icon.b
+			AddButton(level, function(info)
+				info.text = iconName
+				info.func = function()
+					SetRaidTarget(unit, iconIndex)
+				end
+				info.icon = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. iconIndex
+				info.tCoordLeft = 0
+				info.tCoordRight = 1
+				info.tCoordTop = 0
+				info.tCoordBottom = 1
+				info.colorCode = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+				info.checked = (currentTarget == iconIndex)
+			end)
+		end
+
+		AddButton(level, function(info)
+			info.text = RAID_TARGET_NONE
+			info.func = function()
+				SetRaidTarget(unit, 0)
+			end
+			info.checked = (currentTarget == nil or currentTarget == 0)
+		end)
+	end
+
+	local function AddLevelOneButtons(level)
+		local unitName = UnitName(unit)
+		local isPlayer = UnitIsPlayer(unit)
+
+		AddButton(level, function(info)
+			info.text = unitName or fallbackTitle
+			info.isTitle = true
+			info.notCheckable = true
+		end)
+
+		AddButton(level, function(info)
+			local targetName = unitName
+			info.text = WHISPER
+			info.notCheckable = true
+			info.func = function()
+				if targetName then
+					ChatFrame_SendTell(targetName)
+				end
+			end
+			info.disabled = not (isPlayer and targetName)
+		end)
+
+		AddButton(level, function(info)
+			info.text = INSPECT
+			info.notCheckable = true
+			info.func = function()
+				InspectUnit(unit)
+			end
+			info.disabled = not CanInspect(unit)
+		end)
+
+		AddButton(level, function(info)
+			local targetName = unitName
+			info.text = INVITE
+			info.notCheckable = true
+			info.func = function()
+				if targetName then
+					InviteUnit(targetName)
+				end
+			end
+			info.disabled = not (isPlayer and targetName and not UnitInParty(unit) and not UnitInRaid(unit))
+		end)
+
+		AddButton(level, function(info)
+			local targetName = unitName
+			info.text = COMPARE_ACHIEVEMENTS
+			info.notCheckable = true
+			info.func = function()
+				if not AchievementFrame then
+					AchievementFrame_LoadUI()
+				end
+				if AchievementFrame and targetName then
+					AchievementFrame_DisplayComparison(targetName)
+				end
+			end
+			info.disabled = not (isPlayer and targetName)
+		end)
+
+		AddButton(level, function(info)
+			info.text = TRADE
+			info.notCheckable = true
+			info.func = function()
+				InitiateTrade(unit)
+			end
+			info.disabled = not (isPlayer and CheckInteractDistance(unit, 2))
+		end)
+
+		AddButton(level, function(info)
+			info.text = FOLLOW
+			info.notCheckable = true
+			info.func = function()
+				FollowUnit(unit)
+			end
+			info.disabled = not isPlayer
+		end)
+
+		AddButton(level, function(info)
+			info.text = DUEL
+			info.notCheckable = true
+			info.func = function()
+				StartDuel(unit)
+			end
+			info.disabled = not (isPlayer and CheckInteractDistance(unit, 3))
+		end)
+
+		AddButton(level, function(info)
+			info.text = RAID_TARGET_ICON
+			info.notCheckable = true
+			info.hasArrow = true
+			info.value = "RAID_TARGET"
+		end)
+
+		if extraLevel1Buttons then
+			extraLevel1Buttons(level, unit, AddButton)
+		end
+
+		AddButton(level, function(info)
+			info.text = CANCEL
+			info.notCheckable = true
+			info.func = CloseDropDownMenus
+		end)
+	end
+
+	dropdown.initialize = function(self, level)
+		if not level then
+			return
+		end
+
+		if level == 1 then
+			if level1Builder then
+				level1Builder(level, unit, AddButton, fallbackTitle)
+			else
+				AddLevelOneButtons(level)
+			end
+		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RAID_TARGET" then
+			AddRaidTargetMenu(level)
+		elseif level2Handlers then
+			local handler = level2Handlers[UIDROPDOWNMENU_MENU_VALUE]
+			if handler then
+				handler(level, unit, AddButton)
+			end
+		end
+	end
+
+	return dropdown
+end
+
+-------------------------------------------------------------------------------
 -- MOVABLE FRAMES SYSTEM
 -------------------------------------------------------------------------------
 
@@ -485,284 +815,196 @@ local function CreatePlayerFrame()
 	frame:SetFrameLevel(1)
 	frame:SetScale(1.15) -- Slightly larger than default
 
-	-- Health bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.healthBar = CreateFrame("StatusBar", nil, frame)
-	frame.healthBar:SetSize(108, 24)
-	frame.healthBar:SetPoint("TOPLEFT", 97, -20)
-	frame.healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.healthBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.healthBar:GetStatusBarTexture():SetVertTile(false)
-	frame.healthBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.healthBar:SetMinMaxValues(0, 100)
-	frame.healthBar:SetValue(100)
-	frame.healthBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 97,
+		y = -20,
+	})
 
-	-- Health bar background (black with 35% opacity)
-	frame.healthBarBg = frame.healthBar:CreateTexture(nil, "BACKGROUND")
-	frame.healthBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.healthBarBg:SetAllPoints(frame.healthBar)
+	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 97,
+		y = -46,
+	})
 
-	-- Remove default StatusBar background
-	if frame.healthBar.SetBackdrop then
-		frame.healthBar:SetBackdrop(nil)
-	end
+	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.player, { mirror = true })
 
-	-- Mana/Power bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.powerBar = CreateFrame("StatusBar", nil, frame)
-	frame.powerBar:SetSize(108, 9)
-	frame.powerBar:SetPoint("TOPLEFT", 97, -46)
-	frame.powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.powerBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.powerBar:GetStatusBarTexture():SetVertTile(false)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.powerBar:SetMinMaxValues(0, 100)
-	frame.powerBar:SetValue(100)
-	frame.powerBar:SetFrameLevel(frame:GetFrameLevel() - 1)
-
-	-- Power bar background (black with 35% opacity)
-	frame.powerBarBg = frame.powerBar:CreateTexture(nil, "BACKGROUND")
-	frame.powerBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.powerBarBg:SetAllPoints(frame.powerBar)
-
-	-- Remove default StatusBar background
-	if frame.powerBar.SetBackdrop then
-		frame.powerBar:SetBackdrop(nil)
-	end
-
-	-- Border/Background texture (BORDER layer - drawn on top of bars)
-	frame.texture = frame:CreateTexture(nil, "BORDER", nil, 0)
-	frame.texture:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite")
-	frame.texture:SetSize(232, 110)
-	frame.texture:SetPoint("TOPLEFT", 0, 0)
-	-- Flip texture horizontally for player frame (target frame is default orientation)
-	frame.texture:SetTexCoord(1, 0, 0, 1) -- Flipped: right to left, top to bottom
-
-	-- Portrait (2D texture - BACKGROUND layer to ensure it's always below frame texture)
-	frame.portrait = frame:CreateTexture(nil, "BACKGROUND", nil, 5)
-	frame.portrait:SetSize(50, 48)
-	frame.portrait:SetPoint("CENTER", frame, "TOPLEFT", 68, -38)
+	frame.portrait = CreatePortrait(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 68,
+		y = -38,
+	})
 	SetPortraitTexture(frame.portrait, "player")
 
-	-- Make portrait circular using texture coordinates to crop it
-	-- This creates a circular crop by using the center portion of the portrait
-	local circularCrop = 0.08 -- Crop edges to make it more circular
-	frame.portrait:SetTexCoord(circularCrop, 1 - circularCrop, circularCrop, 1 - circularCrop)
-
-	-- Circular mask for portrait using the frame texture itself as a mask
-	-- The frame texture has a circular cutout, so we draw it again on top
-	frame.portraitMask = frame:CreateTexture(nil, "BORDER", nil, 5)
-	frame.portraitMask:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite")
-	frame.portraitMask:SetSize(232, 110)
-	frame.portraitMask:SetPoint("TOPLEFT", 0, 0)
-	frame.portraitMask:SetTexCoord(1, 0, 0, 1) -- Same flip as main texture
+	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
 	frame.portraitMask:SetBlendMode("BLEND")
 
 	-- Level/Rest indicator text (displayed in the circular area at bottom left of portrait)
-	frame.levelText = frame:CreateFontString(nil, "OVERLAY")
-	frame.levelText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.levelText:SetPoint("CENTER", frame, "TOPLEFT", 48, -56) -- Position in the circular area
-	frame.levelText:SetTextColor(1, 0.82, 0) -- Gold color
+	frame.levelText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 48,
+		y = -56,
+		size = 8,
+		flags = "OUTLINE",
+		drawLayer = 0,
+		color = { r = 1, g = 0.82, b = 0 },
+	})
 
 	-- Unit name (OVERLAY layer - drawn on top of everything)
-	frame.nameText = frame.healthBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.nameText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 6)
+	frame.nameText = CreateFontString(frame.healthBar, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 6,
+		size = 7,
+		flags = "OUTLINE",
+		drawLayer = 7,
+	})
 	frame.nameText:SetText(UnitName("player"))
-	frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.nameText:SetDrawLayer("OVERLAY", 7)
 
 	-- Health text (OVERLAY layer - drawn on top of everything)
-	frame.healthText = frame.healthBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.healthText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, -6)
+	frame.healthText = CreateFontString(frame.healthBar, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = -6,
+		size = 8,
+		flags = "OUTLINE",
+		drawLayer = 7,
+		color = { r = 1, g = 1, b = 1 },
+	})
 	frame.healthText:SetText("")
-	frame.healthText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.healthText:SetTextColor(1, 1, 1) -- White color
-	frame.healthText:SetDrawLayer("OVERLAY", 7)
 
 	-- Power text (OVERLAY layer - drawn on top of everything)
 	-- Must be child of main frame, not powerBar, to render above frame texture
-	frame.powerText = frame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-	frame.powerText:SetPoint("CENTER", frame.powerBar, "CENTER", 0, 1)
+	frame.powerText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.powerBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 1,
+		size = 7,
+		flags = "OUTLINE",
+		drawLayer = 7,
+		color = { r = 1, g = 1, b = 1 },
+	})
 	frame.powerText:SetText("")
-	frame.powerText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.powerText:SetDrawLayer("OVERLAY", 7)
 
 	-- Enable mouse clicks and set up secure click handling
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
-	-- Create custom dropdown menu
-	local dropdown = CreateFrame("Frame", "UFI_PlayerFrameDropDown", UIParent, "UIDropDownMenuTemplate")
-	dropdown.displayMode = "MENU"
-	dropdown.initialize = function(self, level)
-		if not level then
-			return
-		end
-
-		local info = UIDropDownMenu_CreateInfo()
-
-		-- Level 1: Main menu
-		if level == 1 then
-			-- Title - Player name in gold
-			info.text = UnitName("player")
-			info.isTitle = true
-			info.notCheckable = true
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Dungeon Difficulty submenu
-			info = UIDropDownMenu_CreateInfo()
-			info.text = DUNGEON_DIFFICULTY
-			info.notCheckable = true
-			info.hasArrow = true
-			info.value = "DUNGEON_DIFFICULTY"
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Raid Difficulty submenu
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RAID_DIFFICULTY
-			info.notCheckable = true
-			info.hasArrow = true
-			info.value = "RAID_DIFFICULTY"
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Reset Instances submenu
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RESET_INSTANCES
-			info.notCheckable = true
-			info.hasArrow = true
-			info.value = "RESET_INSTANCES"
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Raid Target Icon submenu
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RAID_TARGET_ICON
-			info.notCheckable = true
-			info.hasArrow = true
-			info.value = "RAID_TARGET"
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Cancel
-			info = UIDropDownMenu_CreateInfo()
-			info.text = CANCEL
-			info.notCheckable = true
-			info.func = function()
-				CloseDropDownMenus()
+	-- Create custom dropdown menu via shared helper
+	local dropdown = CreateUnitInteractionDropdown("player", "UFI_PlayerFrameDropDown", {
+		fallbackTitle = PLAYER or "Player",
+		level1Builder = function(level, unitId, addButton, defaultTitle)
+			if level ~= 1 then
+				return
 			end
-			UIDropDownMenu_AddButton(info, level)
 
-		-- Level 2: Dungeon Difficulty
-		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "DUNGEON_DIFFICULTY" then
-			local currentDifficulty = GetDungeonDifficulty()
+			local unitName = UnitName(unitId) or defaultTitle or "Player"
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "5 Player"
-			info.func = function()
-				SetDungeonDifficulty(1)
-			end
-			info.checked = (currentDifficulty == 1)
-			UIDropDownMenu_AddButton(info, level)
+			addButton(level, function(info)
+				info.text = unitName
+				info.isTitle = true
+				info.notCheckable = true
+			end)
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "5 Player (Heroic)"
-			info.func = function()
-				SetDungeonDifficulty(2)
-			end
-			info.checked = (currentDifficulty == 2)
-			UIDropDownMenu_AddButton(info, level)
+			addButton(level, function(info)
+				info.text = DUNGEON_DIFFICULTY
+				info.notCheckable = true
+				info.hasArrow = true
+				info.value = "DUNGEON_DIFFICULTY"
+			end)
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "5 Player (Mythic)"
-			info.func = function()
-				SetDungeonDifficulty(3)
-			end
-			info.checked = (currentDifficulty == 3)
-			UIDropDownMenu_AddButton(info, level)
+			addButton(level, function(info)
+				info.text = RAID_DIFFICULTY
+				info.notCheckable = true
+				info.hasArrow = true
+				info.value = "RAID_DIFFICULTY"
+			end)
 
-		-- Level 2: Raid Difficulty
-		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RAID_DIFFICULTY" then
-			local currentDifficulty = GetRaidDifficulty()
+			addButton(level, function(info)
+				info.text = RESET_INSTANCES
+				info.notCheckable = true
+				info.hasArrow = true
+				info.value = "RESET_INSTANCES"
+			end)
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "Normal (10-25 Players)"
-			info.func = function()
-				SetRaidDifficulty(1)
-			end
-			info.checked = (currentDifficulty == 1)
-			UIDropDownMenu_AddButton(info, level)
+			addButton(level, function(info)
+				info.text = RAID_TARGET_ICON
+				info.notCheckable = true
+				info.hasArrow = true
+				info.value = "RAID_TARGET"
+			end)
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "Heroic (10-25 Players)"
-			info.func = function()
-				SetRaidDifficulty(2)
-			end
-			info.checked = (currentDifficulty == 2)
-			UIDropDownMenu_AddButton(info, level)
-
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "Mythic (10-25 Players)"
-			info.func = function()
-				SetRaidDifficulty(3)
-			end
-			info.checked = (currentDifficulty == 3)
-			UIDropDownMenu_AddButton(info, level)
-
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "Ascended (10-25 Players)" -- Custom for Ascended
-			info.func = function()
-				SetRaidDifficulty(4)
-			end
-			info.checked = (currentDifficulty == 4)
-			UIDropDownMenu_AddButton(info, level)
-
-		-- Level 2: Reset Instances
-		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RESET_INSTANCES" then
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RESET_ALL_DUNGEONS
-			info.notCheckable = true
-			info.func = function()
-				StaticPopup_Show("CONFIRM_RESET_INSTANCES")
-			end
-			UIDropDownMenu_AddButton(info, level)
-
-		-- Level 2: Raid Target Icons
-		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RAID_TARGET" then
-			local currentTarget = GetRaidTargetIndex("player")
-
-			local icons = {
-				{ name = RAID_TARGET_1, index = 1, r = 1.0, g = 1.0, b = 0.0 }, -- Star (Yellow)
-				{ name = RAID_TARGET_2, index = 2, r = 1.0, g = 0.5, b = 0.0 }, -- Circle (Orange)
-				{ name = RAID_TARGET_3, index = 3, r = 0.6, g = 0.4, b = 1.0 }, -- Diamond (Purple)
-				{ name = RAID_TARGET_4, index = 4, r = 0.0, g = 1.0, b = 0.0 }, -- Triangle (Green)
-				{ name = RAID_TARGET_5, index = 5, r = 0.7, g = 0.7, b = 0.7 }, -- Moon (Silver/Gray)
-				{ name = RAID_TARGET_6, index = 6, r = 0.0, g = 0.5, b = 1.0 }, -- Square (Blue)
-				{ name = RAID_TARGET_7, index = 7, r = 1.0, g = 0.0, b = 0.0 }, -- Cross (Red)
-				{ name = RAID_TARGET_8, index = 8, r = 1.0, g = 1.0, b = 1.0 }, -- Skull (White)
-			}
-
-			for _, icon in ipairs(icons) do
-				info = UIDropDownMenu_CreateInfo()
-				info.text = icon.name
+			addButton(level, function(info)
+				info.text = CANCEL
+				info.notCheckable = true
 				info.func = function()
-					SetRaidTarget("player", icon.index)
+					CloseDropDownMenus()
 				end
-				info.icon = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. icon.index
-				info.tCoordLeft = 0
-				info.tCoordRight = 1
-				info.tCoordTop = 0
-				info.tCoordBottom = 1
-				info.colorCode = string.format("|cff%02x%02x%02x", icon.r * 255, icon.g * 255, icon.b * 255)
-				info.checked = (currentTarget == icon.index)
-				UIDropDownMenu_AddButton(info, level)
-			end
+			end)
+		end,
+		level2Handlers = {
+			DUNGEON_DIFFICULTY = function(level, unitId, addButton)
+				local currentDifficulty = GetDungeonDifficulty()
+				local options = {
+					{ text = "5 Player", value = 1 },
+					{ text = "5 Player (Heroic)", value = 2 },
+					{ text = "5 Player (Mythic)", value = 3 },
+				}
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RAID_TARGET_NONE
-			info.func = function()
-				SetRaidTarget("player", 0)
-			end
-			info.checked = (currentTarget == nil or currentTarget == 0)
-			UIDropDownMenu_AddButton(info, level)
-		end
-	end
+				for _, option in ipairs(options) do
+					addButton(level, function(info)
+						info.text = option.text
+						info.func = function()
+							SetDungeonDifficulty(option.value)
+						end
+						info.checked = (currentDifficulty == option.value)
+					end)
+				end
+			end,
+			RAID_DIFFICULTY = function(level, unitId, addButton)
+				local currentDifficulty = GetRaidDifficulty()
+				local options = {
+					{ text = "Normal (10-25 Players)", value = 1 },
+					{ text = "Heroic (10-25 Players)", value = 2 },
+					{ text = "Mythic (10-25 Players)", value = 3 },
+					{ text = "Ascended (10-25 Players)", value = 4 },
+				}
+
+				for _, option in ipairs(options) do
+					addButton(level, function(info)
+						info.text = option.text
+						info.func = function()
+							SetRaidDifficulty(option.value)
+						end
+						info.checked = (currentDifficulty == option.value)
+					end)
+				end
+			end,
+			RESET_INSTANCES = function(level, unitId, addButton)
+				addButton(level, function(info)
+					info.text = RESET_ALL_DUNGEONS
+					info.notCheckable = true
+					info.func = function()
+						StaticPopup_Show("CONFIRM_RESET_INSTANCES")
+					end
+				end)
+			end,
+		},
+	})
 
 	-- Initialize secure unit button with menu function
 	SecureUnitButton_OnLoad(frame, "player", function(self, unit, button)
@@ -786,10 +1028,21 @@ local CASTBAR_STATE = {
 	FADING = "fading",
 }
 
-local function CreateTargetCastBar(parent)
+local castBarsByUnit = {}
+
+local function CreateCastBar(parent, unit, options)
+	options = options or {}
+
 	local castBar = CreateFrame("StatusBar", nil, parent)
-	castBar:SetSize(148, 12)
-	castBar:SetPoint("TOP", parent, "BOTTOM", 0, -6)
+	castBar:SetSize(options.width or 148, options.height or 12)
+	local anchor = options.anchor or { point = "TOP", relativeTo = parent, relativePoint = "BOTTOM", x = 0, y = -6 }
+	castBar:SetPoint(
+		anchor.point,
+		anchor.relativeTo or parent,
+		anchor.relativePoint or anchor.point,
+		anchor.x or 0,
+		anchor.y or -6
+	)
 	castBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 	castBar:GetStatusBarTexture():SetHorizTile(false)
 	castBar:GetStatusBarTexture():SetVertTile(false)
@@ -797,38 +1050,33 @@ local function CreateTargetCastBar(parent)
 	castBar:SetValue(0)
 	castBar:Hide()
 
-	-- Background
 	local bg = castBar:CreateTexture(nil, "BACKGROUND")
 	bg:SetTexture(0, 0, 0, 0.5)
 	bg:SetAllPoints(castBar)
 
-	-- Border
 	local border = castBar:CreateTexture(nil, "OVERLAY")
 	border:SetTexture("Interface\\CastingBar\\UI-CastingBar-Border-Small")
 	border:SetSize(195, 50)
 	border:SetPoint("TOP", castBar, "TOP", 0, 20)
 
-	-- Text
 	local text = castBar:CreateFontString(nil, "OVERLAY")
 	text:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
 	text:SetPoint("LEFT", castBar, "LEFT", 2, 1)
 	text:SetTextColor(1, 1, 1)
 	castBar.text = text
 
-	-- Time
 	local time = castBar:CreateFontString(nil, "OVERLAY")
 	time:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
 	time:SetPoint("RIGHT", castBar, "RIGHT", -2, 1)
 	time:SetTextColor(1, 1, 1)
 	castBar.time = time
 
-	-- Icon
 	local icon = castBar:CreateTexture(nil, "OVERLAY")
 	icon:SetSize(16, 16)
-	icon:SetPoint("RIGHT", castBar, "LEFT", -5, 0)
+	icon:SetPoint("RIGHT", castBar, "LEFT", options.iconOffsetX or -5, options.iconOffsetY or 0)
 	castBar.icon = icon
 
-	-- State
+	castBar.unit = unit
 	castBar.state = CASTBAR_STATE.HIDDEN
 	castBar.startTime = 0
 	castBar.endTime = 0
@@ -838,207 +1086,187 @@ local function CreateTargetCastBar(parent)
 	castBar.spellName = ""
 	castBar.spellTexture = ""
 
+	castBarsByUnit[unit] = castBar
 	return castBar
 end
 
-local function UpdateTargetCastBar(castBar, elapsed)
-	if not castBar or not UnitExists("target") then
+local function UpdateCastBar(castBar)
+	if not castBar or castBar.state == CASTBAR_STATE.HIDDEN then
+		return
+	end
+
+	local unit = castBar.unit
+	if not unit or not UnitExists(unit) then
+		castBar:Hide()
+		castBar.state = CASTBAR_STATE.HIDDEN
 		return
 	end
 
 	local currentTime = GetTime()
 	local state = castBar.state
 
-	-- State: FINISHED (holding before fade)
 	if state == CASTBAR_STATE.FINISHED then
 		if currentTime >= castBar.holdUntil then
-			-- Transition to fading
 			castBar.state = CASTBAR_STATE.FADING
 			castBar.fadeStartTime = currentTime
 		end
 		return
 	end
 
-	-- State: FADING
 	if state == CASTBAR_STATE.FADING then
 		local fadeDuration = 1
 		local fadeElapsed = currentTime - castBar.fadeStartTime
 
 		if fadeElapsed >= fadeDuration then
-			-- Fade complete
 			castBar:Hide()
 			castBar:SetAlpha(1)
 			castBar.state = CASTBAR_STATE.HIDDEN
 		else
-			-- Still fading
 			local alpha = 1 - (fadeElapsed / fadeDuration)
 			castBar:SetAlpha(alpha)
 		end
 		return
 	end
 
-	-- State: CASTING or CHANNELING
 	if state == CASTBAR_STATE.CASTING or state == CASTBAR_STATE.CHANNELING then
 		local remaining = castBar.endTime - currentTime
-
 		if remaining < 0 then
-			-- Cast finished naturally, but wait for STOP event
-			-- Just cap at 100%
 			castBar:SetValue(1)
 			return
 		end
 
-		-- Update progress
 		local duration = castBar.endTime - castBar.startTime
 		local progress
-
 		if state == CASTBAR_STATE.CHANNELING then
-			-- Channeling goes from full to empty
-			progress = remaining / duration
+			progress = duration > 0 and (remaining / duration) or 0
 		else
-			-- Casting goes from empty to full
-			progress = 1 - (remaining / duration)
+			progress = duration > 0 and (1 - (remaining / duration)) or 0
 		end
 
 		castBar:SetValue(progress)
-
-		-- Update time text
 		castBar.time:SetText(string.format("%.1f", remaining))
 
-		-- Set color based on interruptible status
 		if castBar.notInterruptible then
-			castBar:SetStatusBarColor(0.5, 0.5, 0.5) -- Gray
+			castBar:SetStatusBarColor(0.5, 0.5, 0.5)
 		else
-			castBar:SetStatusBarColor(1, 0.7, 0) -- Yellow
+			castBar:SetStatusBarColor(1, 0.7, 0)
 		end
 	end
 end
 
-local function CreateFocusCastBar(parent)
-	local castBar = CreateFrame("StatusBar", nil, parent)
-	castBar:SetSize(148, 12)
-	castBar:SetPoint("TOP", parent, "BOTTOM", 0, -6)
-	castBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	castBar:GetStatusBarTexture():SetHorizTile(false)
-	castBar:GetStatusBarTexture():SetVertTile(false)
-	castBar:SetMinMaxValues(0, 1)
-	castBar:SetValue(0)
-	castBar:Hide()
+local function BeginCast(unit, isChannel)
+	local castBar = castBarsByUnit[unit]
+	if not castBar then
+		return
+	end
 
-	-- Background
-	local bg = castBar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.5)
-	bg:SetAllPoints(castBar)
+	local info = isChannel and { UnitChannelInfo(unit) } or { UnitCastingInfo(unit) }
+	local name = info[1]
+	if not name then
+		return
+	end
 
-	-- Border
-	local border = castBar:CreateTexture(nil, "OVERLAY")
-	border:SetTexture("Interface\\CastingBar\\UI-CastingBar-Border-Small")
-	border:SetSize(195, 50)
-	border:SetPoint("TOP", castBar, "TOP", 0, 20)
+	local texture = info[4]
+	local startTime = info[5]
+	local endTime = info[6]
+	local notInterruptible = isChannel and (info[8] or false) or (info[9] or false)
 
-	-- Text
-	local text = castBar:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	text:SetPoint("LEFT", castBar, "LEFT", 2, 1)
-	text:SetTextColor(1, 1, 1)
-	castBar.text = text
-
-	-- Time
-	local time = castBar:CreateFontString(nil, "OVERLAY")
-	time:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	time:SetPoint("RIGHT", castBar, "RIGHT", -2, 1)
-	time:SetTextColor(1, 1, 1)
-	castBar.time = time
-
-	-- Icon
-	local icon = castBar:CreateTexture(nil, "OVERLAY")
-	icon:SetSize(16, 16)
-	icon:SetPoint("RIGHT", castBar, "LEFT", -5, 0)
-	castBar.icon = icon
-
-	-- State
-	castBar.state = CASTBAR_STATE.HIDDEN
-	castBar.startTime = 0
-	castBar.endTime = 0
-	castBar.notInterruptible = false
+	castBar.state = isChannel and CASTBAR_STATE.CHANNELING or CASTBAR_STATE.CASTING
+	castBar.startTime = (startTime or 0) / 1000
+	castBar.endTime = (endTime or 0) / 1000
+	castBar.notInterruptible = notInterruptible
 	castBar.holdUntil = 0
 	castBar.fadeStartTime = 0
-	castBar.spellName = ""
-	castBar.spellTexture = ""
-
-	return castBar
+	castBar.spellName = name
+	castBar.spellTexture = texture or ""
+	castBar:SetAlpha(1)
+	castBar:SetValue(isChannel and 1 or 0)
+	castBar.text:SetText(name)
+	castBar.time:SetText("")
+	castBar.icon:SetTexture(texture)
+	castBar:SetStatusBarColor(1, 0.7, 0)
+	castBar:Show()
+	UpdateCastBar(castBar)
 end
 
-local function UpdateFocusCastBar(castBar, elapsed)
-	if not castBar or not UnitExists("focus") then
+local function StopCast(unit)
+	local castBar = castBarsByUnit[unit]
+	if not castBar then
 		return
 	end
 
-	local currentTime = GetTime()
-	local state = castBar.state
+	if castBar.state == CASTBAR_STATE.CASTING or castBar.state == CASTBAR_STATE.CHANNELING then
+		castBar.state = CASTBAR_STATE.FADING
+		castBar.fadeStartTime = GetTime()
+	end
+end
 
-	-- State: FINISHED (holding before fade)
-	if state == CASTBAR_STATE.FINISHED then
-		if currentTime >= castBar.holdUntil then
-			-- Transition to fading
-			castBar.state = CASTBAR_STATE.FADING
-			castBar.fadeStartTime = currentTime
-		end
+local function FailCast(unit, wasInterrupted)
+	local castBar = castBarsByUnit[unit]
+	if not castBar then
 		return
 	end
 
-	-- State: FADING
-	if state == CASTBAR_STATE.FADING then
-		local fadeDuration = 1
-		local fadeElapsed = currentTime - castBar.fadeStartTime
-
-		if fadeElapsed >= fadeDuration then
-			-- Fade complete
-			castBar:Hide()
-			castBar:SetAlpha(1)
-			castBar.state = CASTBAR_STATE.HIDDEN
+	if castBar.state ~= CASTBAR_STATE.FINISHED then
+		if wasInterrupted then
+			castBar:SetStatusBarColor(1, 0, 0)
+			castBar.text:SetText("Interrupted")
 		else
-			-- Still fading
-			local alpha = 1 - (fadeElapsed / fadeDuration)
-			castBar:SetAlpha(alpha)
+			castBar:SetStatusBarColor(0.5, 0.5, 0.5)
+			castBar.text:SetText("Failed")
 		end
+		castBar:SetValue(1)
+		castBar:SetAlpha(1)
+		castBar:Show()
+		castBar.state = CASTBAR_STATE.FINISHED
+		castBar.holdUntil = GetTime() + 0.5
+	end
+end
+
+local function AdjustCastTiming(unit, isChannel)
+	local castBar = castBarsByUnit[unit]
+	if not castBar then
 		return
 	end
 
-	-- State: CASTING or CHANNELING
-	if state == CASTBAR_STATE.CASTING or state == CASTBAR_STATE.CHANNELING then
-		local remaining = castBar.endTime - currentTime
+	local info = isChannel and { UnitChannelInfo(unit) } or { UnitCastingInfo(unit) }
+	if not info[1] then
+		return
+	end
 
-		if remaining < 0 then
-			-- Cast finished naturally, but wait for STOP event
-			-- Just cap at 100%
-			castBar:SetValue(1)
-			return
-		end
+	castBar.startTime = (info[5] or 0) / 1000
+	castBar.endTime = (info[6] or 0) / 1000
 
-		-- Update progress
-		local duration = castBar.endTime - castBar.startTime
-		local progress
+	if not isChannel then
+		castBar.notInterruptible = info[9] or false
+	else
+		castBar.notInterruptible = info[8] or false
+	end
+end
 
-		if state == CASTBAR_STATE.CHANNELING then
-			-- Channeling goes from full to empty
-			progress = remaining / duration
-		else
-			-- Casting goes from empty to full
-			progress = 1 - (remaining / duration)
-		end
+local function HideCastBar(unit)
+	local castBar = castBarsByUnit[unit]
+	if not castBar then
+		return
+	end
 
-		castBar:SetValue(progress)
+	castBar.state = CASTBAR_STATE.HIDDEN
+	castBar:SetAlpha(1)
+	castBar:SetValue(0)
+	castBar:Hide()
+	castBar.text:SetText("")
+	castBar.time:SetText("")
+	castBar.icon:SetTexture(nil)
+	castBar.notInterruptible = false
+end
 
-		-- Update time text
-		castBar.time:SetText(string.format("%.1f", remaining))
-
-		-- Set color based on interruptible status
-		if castBar.notInterruptible then
-			castBar:SetStatusBarColor(0.5, 0.5, 0.5) -- Gray
-		else
-			castBar:SetStatusBarColor(1, 0.7, 0) -- Yellow
-		end
+local function RefreshCastBar(unit)
+	if UnitCastingInfo(unit) then
+		BeginCast(unit, false)
+	elseif UnitChannelInfo(unit) then
+		BeginCast(unit, true)
+	else
+		HideCastBar(unit)
 	end
 end
 
@@ -1055,383 +1283,158 @@ local function CreateTargetFrame()
 	frame:SetFrameLevel(1)
 	frame:SetScale(1.15)
 
-	-- Health bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.healthBar = CreateFrame("StatusBar", nil, frame)
-	frame.healthBar:SetSize(108, 24)
-	frame.healthBar:SetPoint("TOPLEFT", 27, -20) -- Moved to left side for target frame
-	frame.healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.healthBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.healthBar:GetStatusBarTexture():SetVertTile(false)
-	frame.healthBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.healthBar:SetMinMaxValues(0, 100)
-	frame.healthBar:SetValue(100)
-	frame.healthBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 27,
+		y = -20,
+	})
 
-	-- Health bar background (black with 35% opacity)
-	frame.healthBarBg = frame.healthBar:CreateTexture(nil, "BACKGROUND")
-	frame.healthBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.healthBarBg:SetAllPoints(frame.healthBar)
+	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 27,
+		y = -46,
+	})
 
-	-- Remove default StatusBar background
-	if frame.healthBar.SetBackdrop then
-		frame.healthBar:SetBackdrop(nil)
-	end
+	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default)
 
-	-- Mana/Power bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.powerBar = CreateFrame("StatusBar", nil, frame)
-	frame.powerBar:SetSize(108, 9)
-	frame.powerBar:SetPoint("TOPLEFT", 27, -46) -- Moved to left side for target frame
-	frame.powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.powerBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.powerBar:GetStatusBarTexture():SetVertTile(false)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.powerBar:SetMinMaxValues(0, 100)
-	frame.powerBar:SetValue(100)
-	frame.powerBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.portrait = CreatePortrait(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 164,
+		y = -38,
+	})
 
-	-- Power bar background (black with 35% opacity)
-	frame.powerBarBg = frame.powerBar:CreateTexture(nil, "BACKGROUND")
-	frame.powerBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.powerBarBg:SetAllPoints(frame.powerBar)
-
-	-- Remove default StatusBar background
-	if frame.powerBar.SetBackdrop then
-		frame.powerBar:SetBackdrop(nil)
-	end
-
-	-- Border/Background texture (BORDER layer - drawn on top of bars)
-	frame.texture = frame:CreateTexture(nil, "BORDER", nil, 0)
-	frame.texture:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame")
-	frame.texture:SetSize(232, 110)
-	frame.texture:SetPoint("TOPLEFT", 0, 0)
-	-- No flip needed for target frame - it faces the opposite direction from player
-
-	-- Portrait (2D texture - BACKGROUND layer to ensure it's always below frame texture)
-	frame.portrait = frame:CreateTexture(nil, "BACKGROUND", nil, 5)
-	frame.portrait:SetSize(50, 48)
-	frame.portrait:SetPoint("CENTER", frame, "TOPLEFT", 164, -38) -- Moved to right side for target frame
-
-	-- Make portrait circular using texture coordinates to crop it
-	local circularCrop = 0.08
-	frame.portrait:SetTexCoord(circularCrop, 1 - circularCrop, circularCrop, 1 - circularCrop)
-
-	-- Circular mask for portrait using the frame texture itself as a mask
-	frame.portraitMask = frame:CreateTexture(nil, "BORDER", nil, 5)
-	frame.portraitMask:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame")
-	frame.portraitMask:SetSize(232, 110)
-	frame.portraitMask:SetPoint("TOPLEFT", 0, 0)
+	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.default, { subLevel = 5 })
 	frame.portraitMask:SetBlendMode("BLEND")
 
-	-- Elite/Rare dragon texture
-	frame.eliteTexture = frame:CreateTexture(nil, "OVERLAY")
-	frame.eliteTexture:SetSize(232, 110)
-	frame.eliteTexture:SetPoint("TOPLEFT", 0, 0)
+	frame.eliteTexture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { layer = "OVERLAY" })
 	frame.eliteTexture:Hide()
 
-	-- Level text (on right side for target frame)
-	frame.levelText = frame:CreateFontString(nil, "OVERLAY")
-	frame.levelText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.levelText:SetPoint("CENTER", frame, "TOPLEFT", 184, -56) -- Moved to right side for target frame
-	frame.levelText:SetTextColor(1, 0.82, 0)
+	frame.levelText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 184,
+		y = -56,
+		size = 8,
+		flags = "OUTLINE",
+		color = { r = 1, g = 0.82, b = 0 },
+		drawLayer = 0,
+	})
 
-	-- Unit name (OVERLAY layer - drawn on top of everything)
-	-- Must be child of main frame, not healthBar, to render above frame texture
-	frame.nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.nameText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 6)
+	frame.nameText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 6,
+		size = 7,
+		flags = "OUTLINE",
+		drawLayer = 7,
+	})
 	frame.nameText:SetText("")
-	frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.nameText:SetDrawLayer("OVERLAY", 7)
 
-	-- Health text (OVERLAY layer - drawn on top of everything)
-	-- Must be child of main frame, not healthBar, to render above frame texture
-	frame.healthText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.healthText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, -6)
+	frame.healthText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = -6,
+		size = 8,
+		flags = "OUTLINE",
+		color = { r = 1, g = 1, b = 1 },
+		drawLayer = 7,
+	})
 	frame.healthText:SetText("")
-	frame.healthText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.healthText:SetTextColor(1, 1, 1)
-	frame.healthText:SetDrawLayer("OVERLAY", 7)
 
-	-- Power text (OVERLAY layer - drawn on top of everything)
-	-- Must be child of main frame, not powerBar, to render above frame texture
-	frame.powerText = frame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-	frame.powerText:SetPoint("CENTER", frame.powerBar, "CENTER", 0, 1)
+	frame.powerText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.powerBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 1,
+		size = 7,
+		flags = "OUTLINE",
+		color = { r = 1, g = 1, b = 1 },
+		drawLayer = 7,
+	})
 	frame.powerText:SetText("")
-	frame.powerText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.powerText:SetTextColor(1, 1, 1)
-	frame.powerText:SetDrawLayer("OVERLAY", 7)
 
 	-- Dead text overlay
-	frame.deadText = frame:CreateFontString(nil, "OVERLAY")
-	frame.deadText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
-	frame.deadText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 0)
-	frame.deadText:SetTextColor(0.5, 0.5, 0.5)
+	frame.deadText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 0,
+		size = 12,
+		flags = "OUTLINE",
+		color = { r = 0.5, g = 0.5, b = 0.5 },
+		drawLayer = 7,
+	})
+	frame.deadText:SetText("")
 	frame.deadText:Hide()
 
-	-- Cast bar
-	frame.castBar = CreateTargetCastBar(frame)
+	frame.castBar = CreateCastBar(frame, "target")
 
-	-- Aura containers
-	frame.buffs = {}
-	frame.debuffs = {}
-	frame.myDebuffs = {}
+	frame.buffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 15,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "BOTTOMLEFT",
+			x = 28,
+			y = 40,
+		},
+	})
 
-	-- Create buff icons (1 row, up to 5 buffs)
-	for i = 1, 5 do
-		local buff = CreateFrame("Frame", nil, frame)
-		buff:SetSize(15, 15)
-		if i == 1 then
-			buff:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 28, 40)
-		else
-			buff:SetPoint("LEFT", frame.buffs[i - 1], "RIGHT", 2, 0)
-		end
+	frame.debuffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 18,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame.buffs[1],
+			relativePoint = "BOTTOMLEFT",
+			x = 0,
+			y = -2,
+		},
+	})
 
-		buff.icon = buff:CreateTexture(nil, "ARTWORK")
-		buff.icon:SetPoint("TOPLEFT", buff, "TOPLEFT", 1, -1)
-		buff.icon:SetPoint("BOTTOMRIGHT", buff, "BOTTOMRIGHT", -1, 1)
-		buff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		buff.border = buff:CreateTexture(nil, "OVERLAY")
-		buff.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-		buff.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-		buff.border:SetAllPoints()
-
-		buff.cooldown = CreateFrame("Cooldown", nil, buff, "CooldownFrameTemplate")
-		buff.cooldown:SetAllPoints()
-
-		buff.count = buff:CreateFontString(nil, "OVERLAY")
-		buff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		buff.count:SetPoint("BOTTOMRIGHT", buff, "BOTTOMRIGHT", 0, 0)
-
-		buff:Hide()
-		frame.buffs[i] = buff
-	end
-
-	-- Create debuff icons (1 row, up to 5 debuffs)
-	for i = 1, 5 do
-		local debuff = CreateFrame("Frame", nil, frame)
-		debuff:SetSize(18, 18)
-		if i == 1 then
-			debuff:SetPoint("TOPLEFT", frame.buffs[1], "BOTTOMLEFT", 0, -2)
-		else
-			debuff:SetPoint("LEFT", frame.debuffs[i - 1], "RIGHT", 2, 0)
-		end
-
-		debuff.icon = debuff:CreateTexture(nil, "ARTWORK")
-		debuff.icon:SetPoint("TOPLEFT", debuff, "TOPLEFT", 1, -1)
-		debuff.icon:SetPoint("BOTTOMRIGHT", debuff, "BOTTOMRIGHT", -1, 1)
-		debuff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		debuff.border = debuff:CreateTexture(nil, "OVERLAY")
-		debuff.border:SetAllPoints()
-
-		debuff.cooldown = CreateFrame("Cooldown", nil, debuff, "CooldownFrameTemplate")
-		debuff.cooldown:SetAllPoints()
-
-		debuff.count = debuff:CreateFontString(nil, "OVERLAY")
-		debuff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		debuff.count:SetPoint("BOTTOMRIGHT", debuff, "BOTTOMRIGHT", 0, 0)
-
-		debuff:Hide()
-		frame.debuffs[i] = debuff
-	end
-
-	-- Create my debuff icons (1 row, up to 5 debuffs)
-	for i = 1, 5 do
-		local myDebuff = CreateFrame("Frame", nil, frame)
-		myDebuff:SetSize(20, 20)
-		if i == 1 then
-			myDebuff:SetPoint("TOPLEFT", frame.debuffs[1], "BOTTOMLEFT", 0, -2)
-		else
-			myDebuff:SetPoint("LEFT", frame.myDebuffs[i - 1], "RIGHT", 2, 0)
-		end
-
-		myDebuff.icon = myDebuff:CreateTexture(nil, "ARTWORK")
-		myDebuff.icon:SetPoint("TOPLEFT", myDebuff, "TOPLEFT", 1, -1)
-		myDebuff.icon:SetPoint("BOTTOMRIGHT", myDebuff, "BOTTOMRIGHT", -1, 1)
-		myDebuff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		myDebuff.border = myDebuff:CreateTexture(nil, "OVERLAY")
-		myDebuff.border:SetAllPoints()
-
-		myDebuff.cooldown = CreateFrame("Cooldown", nil, myDebuff, "CooldownFrameTemplate")
-		myDebuff.cooldown:SetAllPoints()
-
-		myDebuff.count = myDebuff:CreateFontString(nil, "OVERLAY")
-		myDebuff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		myDebuff.count:SetPoint("BOTTOMRIGHT", myDebuff, "BOTTOMRIGHT", 0, 0)
-
-		myDebuff:Hide()
-		frame.myDebuffs[i] = myDebuff
-	end
+	frame.myDebuffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 20,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame.debuffs[1],
+			relativePoint = "BOTTOMLEFT",
+			x = 0,
+			y = -2,
+		},
+	})
 
 	-- Enable mouse clicks and set up secure click handling
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
-	-- Create custom dropdown menu for target
-	local targetDropdown = CreateFrame("Frame", "UFI_TargetFrameDropDown", UIParent, "UIDropDownMenuTemplate")
-	targetDropdown.displayMode = "MENU"
-	targetDropdown.initialize = function(self, level)
-		if not level then
-			return
-		end
+	local targetDropdown = CreateUnitInteractionDropdown("target", "UFI_TargetFrameDropDown", {
+		fallbackTitle = TARGET or "Target",
+	})
 
-		local info = UIDropDownMenu_CreateInfo()
-
-		-- Level 1: Main menu
-		if level == 1 then
-			-- Title - Target name
-			info.text = UnitName("target") or "Target"
-			info.isTitle = true
-			info.notCheckable = true
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Whisper
-			info = UIDropDownMenu_CreateInfo()
-			info.text = WHISPER
-			info.notCheckable = true
-			info.func = function()
-				if UnitIsPlayer("target") then
-					ChatFrame_SendTell(UnitName("target"))
-				end
-			end
-			info.disabled = not UnitIsPlayer("target")
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Inspect
-			info = UIDropDownMenu_CreateInfo()
-			info.text = INSPECT
-			info.notCheckable = true
-			info.func = function()
-				InspectUnit("target")
-			end
-			info.disabled = not CanInspect("target")
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Invite
-			info = UIDropDownMenu_CreateInfo()
-			info.text = INVITE
-			info.notCheckable = true
-			info.func = function()
-				InviteUnit(UnitName("target"))
-			end
-			info.disabled = not UnitIsPlayer("target") or UnitInParty("target") or UnitInRaid("target")
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Compare Achievements
-			info = UIDropDownMenu_CreateInfo()
-			info.text = COMPARE_ACHIEVEMENTS
-			info.notCheckable = true
-			info.func = function()
-				if not AchievementFrame then
-					AchievementFrame_LoadUI()
-				end
-				if AchievementFrame then
-					AchievementFrame_DisplayComparison(UnitName("target"))
-				end
-			end
-			info.disabled = not UnitIsPlayer("target")
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Trade
-			info = UIDropDownMenu_CreateInfo()
-			info.text = TRADE
-			info.notCheckable = true
-			info.func = function()
-				InitiateTrade("target")
-			end
-			info.disabled = not UnitIsPlayer("target") or not CheckInteractDistance("target", 2)
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Follow
-			info = UIDropDownMenu_CreateInfo()
-			info.text = FOLLOW
-			info.notCheckable = true
-			info.func = function()
-				FollowUnit("target")
-			end
-			info.disabled = not UnitIsPlayer("target")
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Duel
-			info = UIDropDownMenu_CreateInfo()
-			info.text = DUEL
-			info.notCheckable = true
-			info.func = function()
-				StartDuel("target")
-			end
-			info.disabled = not UnitIsPlayer("target") or not CheckInteractDistance("target", 3)
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Raid Target Icon submenu
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RAID_TARGET_ICON
-			info.notCheckable = true
-			info.hasArrow = true
-			info.value = "RAID_TARGET"
-			UIDropDownMenu_AddButton(info, level)
-
-			-- Cancel
-			info = UIDropDownMenu_CreateInfo()
-			info.text = CANCEL
-			info.notCheckable = true
-			info.func = function()
-				CloseDropDownMenus()
-			end
-			UIDropDownMenu_AddButton(info, level)
-
-		-- Level 2: Raid Target Icons
-		elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RAID_TARGET" then
-			local currentTarget = GetRaidTargetIndex("target")
-
-			local icons = {
-				{ name = RAID_TARGET_1, index = 1, r = 1.0, g = 1.0, b = 0.0 }, -- Star (Yellow)
-				{ name = RAID_TARGET_2, index = 2, r = 1.0, g = 0.5, b = 0.0 }, -- Circle (Orange)
-				{ name = RAID_TARGET_3, index = 3, r = 0.6, g = 0.4, b = 1.0 }, -- Diamond (Purple)
-				{ name = RAID_TARGET_4, index = 4, r = 0.0, g = 1.0, b = 0.0 }, -- Triangle (Green)
-				{ name = RAID_TARGET_5, index = 5, r = 0.7, g = 0.7, b = 0.7 }, -- Moon (Silver/Gray)
-				{ name = RAID_TARGET_6, index = 6, r = 0.0, g = 0.5, b = 1.0 }, -- Square (Blue)
-				{ name = RAID_TARGET_7, index = 7, r = 1.0, g = 0.0, b = 0.0 }, -- Cross (Red)
-				{ name = RAID_TARGET_8, index = 8, r = 1.0, g = 1.0, b = 1.0 }, -- Skull (White)
-			}
-
-			for _, icon in ipairs(icons) do
-				info = UIDropDownMenu_CreateInfo()
-				info.text = icon.name
-				info.func = function()
-					SetRaidTarget("target", icon.index)
-				end
-				info.icon = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. icon.index
-				info.tCoordLeft = 0
-				info.tCoordRight = 1
-				info.tCoordTop = 0
-				info.tCoordBottom = 1
-				info.colorCode = string.format("|cff%02x%02x%02x", icon.r * 255, icon.g * 255, icon.b * 255)
-				info.checked = (currentTarget == icon.index)
-				UIDropDownMenu_AddButton(info, level)
-			end
-
-			info = UIDropDownMenu_CreateInfo()
-			info.text = RAID_TARGET_NONE
-			info.func = function()
-				SetRaidTarget("target", 0)
-			end
-			info.checked = (currentTarget == nil or currentTarget == 0)
-			UIDropDownMenu_AddButton(info, level)
-		end
-	end
-
-	-- Reference to player dropdown for when target is player
 	local playerDropdown = UFI_PlayerFrameDropDown
 
-	-- Initialize secure unit button with menu function
 	SecureUnitButton_OnLoad(frame, "target", function(self, unit, button)
-		-- Check if target is the player
 		if UnitIsUnit("target", "player") then
-			-- Show player menu instead
 			ToggleDropDownMenu(1, nil, playerDropdown, self, 110, 45)
 		else
-			-- Show target menu
 			ToggleDropDownMenu(1, nil, targetDropdown, self, 110, 45)
 		end
 	end)
@@ -1456,222 +1459,168 @@ local function CreateFocusFrame()
 	frame:SetFrameLevel(1)
 	frame:SetScale(1.15)
 
-	-- Health bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.healthBar = CreateFrame("StatusBar", nil, frame)
-	frame.healthBar:SetSize(108, 24)
-	frame.healthBar:SetPoint("TOPLEFT", 27, -20) -- Left side like target frame
-	frame.healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.healthBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.healthBar:GetStatusBarTexture():SetVertTile(false)
-	frame.healthBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.healthBar:SetMinMaxValues(0, 100)
-	frame.healthBar:SetValue(100)
-	frame.healthBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 27,
+		y = -20,
+	})
 
-	-- Health bar background (black with 35% opacity)
-	frame.healthBarBg = frame.healthBar:CreateTexture(nil, "BACKGROUND")
-	frame.healthBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.healthBarBg:SetAllPoints(frame.healthBar)
+	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 27,
+		y = -46,
+	})
 
-	-- Remove default StatusBar background
-	if frame.healthBar.SetBackdrop then
-		frame.healthBar:SetBackdrop(nil)
-	end
+	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default)
 
-	-- Mana/Power bar (BACKGROUND layer - drawn first, below frame texture)
-	frame.powerBar = CreateFrame("StatusBar", nil, frame)
-	frame.powerBar:SetSize(108, 9)
-	frame.powerBar:SetPoint("TOPLEFT", 27, -46) -- Left side like target frame
-	frame.powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.powerBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.powerBar:GetStatusBarTexture():SetVertTile(false)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.powerBar:SetMinMaxValues(0, 100)
-	frame.powerBar:SetValue(100)
-	frame.powerBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.portrait = CreatePortrait(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 164,
+		y = -38,
+	})
 
-	-- Power bar background (black with 35% opacity)
-	frame.powerBarBg = frame.powerBar:CreateTexture(nil, "BACKGROUND")
-	frame.powerBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.powerBarBg:SetAllPoints(frame.powerBar)
-
-	-- Remove default StatusBar background
-	if frame.powerBar.SetBackdrop then
-		frame.powerBar:SetBackdrop(nil)
-	end
-
-	-- Border/Background texture (BORDER layer - drawn on top of bars)
-	frame.texture = frame:CreateTexture(nil, "BORDER", nil, 0)
-	frame.texture:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame")
-	frame.texture:SetSize(232, 110)
-	frame.texture:SetPoint("TOPLEFT", 0, 0)
-	-- No flip needed for focus frame - same orientation as target
-
-	-- Portrait (2D texture - BACKGROUND layer to ensure it's always below frame texture)
-	frame.portrait = frame:CreateTexture(nil, "BACKGROUND", nil, 5)
-	frame.portrait:SetSize(50, 48)
-	frame.portrait:SetPoint("CENTER", frame, "TOPLEFT", 164, -38) -- Right side like target frame
-
-	-- Make portrait circular using texture coordinates to crop it
-	local circularCrop = 0.08
-	frame.portrait:SetTexCoord(circularCrop, 1 - circularCrop, circularCrop, 1 - circularCrop)
-
-	-- Circular mask for portrait using the frame texture itself as a mask
-	frame.portraitMask = frame:CreateTexture(nil, "BORDER", nil, 5)
-	frame.portraitMask:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame")
-	frame.portraitMask:SetSize(232, 110)
-	frame.portraitMask:SetPoint("TOPLEFT", 0, 0)
+	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.default, { subLevel = 5 })
 	frame.portraitMask:SetBlendMode("BLEND")
 
-	-- Elite/Rare dragon texture
-	frame.eliteTexture = frame:CreateTexture(nil, "OVERLAY")
-	frame.eliteTexture:SetSize(232, 110)
-	frame.eliteTexture:SetPoint("TOPLEFT", 0, 0)
+	frame.eliteTexture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { layer = "OVERLAY" })
 	frame.eliteTexture:Hide()
 
-	-- Level text (on right side like target frame)
-	frame.levelText = frame:CreateFontString(nil, "OVERLAY")
-	frame.levelText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.levelText:SetPoint("CENTER", frame, "TOPLEFT", 184, -56) -- Right side like target frame
-	frame.levelText:SetTextColor(1, 0.82, 0)
+	frame.levelText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 184,
+		y = -56,
+		size = 8,
+		flags = "OUTLINE",
+		color = { r = 1, g = 0.82, b = 0 },
+		drawLayer = 0,
+	})
 
-	-- Unit name (OVERLAY layer - drawn on top of everything)
-	frame.nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.nameText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 6)
+	frame.nameText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 6,
+		size = 7,
+		flags = "OUTLINE",
+		drawLayer = 7,
+	})
 	frame.nameText:SetText("")
-	frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.nameText:SetDrawLayer("OVERLAY", 7)
 
-	-- Health text (OVERLAY layer - drawn on top of everything)
-	frame.healthText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.healthText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, -6)
+	frame.healthText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = -6,
+		size = 8,
+		flags = "OUTLINE",
+		color = { r = 1, g = 1, b = 1 },
+		drawLayer = 7,
+	})
 	frame.healthText:SetText("")
-	frame.healthText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.healthText:SetTextColor(1, 1, 1)
-	frame.healthText:SetDrawLayer("OVERLAY", 7)
 
-	-- Power text (OVERLAY layer - drawn on top of everything)
-	frame.powerText = frame:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-	frame.powerText:SetPoint("CENTER", frame.powerBar, "CENTER", 0, 1)
+	frame.powerText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.powerBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 1,
+		size = 7,
+		flags = "OUTLINE",
+		color = { r = 1, g = 1, b = 1 },
+		drawLayer = 7,
+	})
 	frame.powerText:SetText("")
-	frame.powerText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	frame.powerText:SetTextColor(1, 1, 1)
-	frame.powerText:SetDrawLayer("OVERLAY", 7)
 
 	-- Dead text overlay
-	frame.deadText = frame:CreateFontString(nil, "OVERLAY")
-	frame.deadText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
-	frame.deadText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 0)
-	frame.deadText:SetTextColor(0.5, 0.5, 0.5)
+	frame.deadText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 0,
+		size = 12,
+		flags = "OUTLINE",
+		color = { r = 0.5, g = 0.5, b = 0.5 },
+		drawLayer = 7,
+	})
+	frame.deadText:SetText("")
 	frame.deadText:Hide()
 
-	-- Cast bar
-	frame.castBar = CreateFocusCastBar(frame)
+	frame.castBar = CreateCastBar(frame, "focus")
 
-	-- Aura containers
-	frame.buffs = {}
-	frame.debuffs = {}
-	frame.myDebuffs = {}
+	frame.buffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 15,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "BOTTOMLEFT",
+			x = 28,
+			y = 40,
+		},
+	})
 
-	-- Create buff icons (1 row, up to 5 buffs)
-	for i = 1, 5 do
-		local buff = CreateFrame("Frame", nil, frame)
-		buff:SetSize(15, 15)
-		if i == 1 then
-			buff:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 28, 40)
-		else
-			buff:SetPoint("LEFT", frame.buffs[i - 1], "RIGHT", 2, 0)
-		end
+	frame.debuffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 18,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame.buffs[1],
+			relativePoint = "BOTTOMLEFT",
+			x = 0,
+			y = -2,
+		},
+	})
 
-		buff.icon = buff:CreateTexture(nil, "ARTWORK")
-		buff.icon:SetPoint("TOPLEFT", buff, "TOPLEFT", 1, -1)
-		buff.icon:SetPoint("BOTTOMRIGHT", buff, "BOTTOMRIGHT", -1, 1)
-		buff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		buff.border = buff:CreateTexture(nil, "OVERLAY")
-		buff.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-		buff.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-		buff.border:SetAllPoints()
-
-		buff.cooldown = CreateFrame("Cooldown", nil, buff, "CooldownFrameTemplate")
-		buff.cooldown:SetAllPoints()
-
-		buff.count = buff:CreateFontString(nil, "OVERLAY")
-		buff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		buff.count:SetPoint("BOTTOMRIGHT", buff, "BOTTOMRIGHT", 0, 0)
-
-		buff:Hide()
-		frame.buffs[i] = buff
-	end
-
-	-- Create debuff icons (1 row, up to 5 debuffs)
-	for i = 1, 5 do
-		local debuff = CreateFrame("Frame", nil, frame)
-		debuff:SetSize(18, 18)
-		if i == 1 then
-			debuff:SetPoint("TOPLEFT", frame.buffs[1], "BOTTOMLEFT", 0, -2)
-		else
-			debuff:SetPoint("LEFT", frame.debuffs[i - 1], "RIGHT", 2, 0)
-		end
-
-		debuff.icon = debuff:CreateTexture(nil, "ARTWORK")
-		debuff.icon:SetPoint("TOPLEFT", debuff, "TOPLEFT", 1, -1)
-		debuff.icon:SetPoint("BOTTOMRIGHT", debuff, "BOTTOMRIGHT", -1, 1)
-		debuff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		debuff.border = debuff:CreateTexture(nil, "OVERLAY")
-		debuff.border:SetAllPoints()
-
-		debuff.cooldown = CreateFrame("Cooldown", nil, debuff, "CooldownFrameTemplate")
-		debuff.cooldown:SetAllPoints()
-
-		debuff.count = debuff:CreateFontString(nil, "OVERLAY")
-		debuff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		debuff.count:SetPoint("BOTTOMRIGHT", debuff, "BOTTOMRIGHT", 0, 0)
-
-		debuff:Hide()
-		frame.debuffs[i] = debuff
-	end
-
-	-- Create my debuff icons (1 row, up to 5 debuffs)
-	for i = 1, 5 do
-		local myDebuff = CreateFrame("Frame", nil, frame)
-		myDebuff:SetSize(20, 20)
-		if i == 1 then
-			myDebuff:SetPoint("TOPLEFT", frame.debuffs[1], "BOTTOMLEFT", 0, -2)
-		else
-			myDebuff:SetPoint("LEFT", frame.myDebuffs[i - 1], "RIGHT", 2, 0)
-		end
-
-		myDebuff.icon = myDebuff:CreateTexture(nil, "ARTWORK")
-		myDebuff.icon:SetPoint("TOPLEFT", myDebuff, "TOPLEFT", 1, -1)
-		myDebuff.icon:SetPoint("BOTTOMRIGHT", myDebuff, "BOTTOMRIGHT", -1, 1)
-		myDebuff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-		myDebuff.border = myDebuff:CreateTexture(nil, "OVERLAY")
-		myDebuff.border:SetAllPoints()
-
-		myDebuff.cooldown = CreateFrame("Cooldown", nil, myDebuff, "CooldownFrameTemplate")
-		myDebuff.cooldown:SetAllPoints()
-
-		myDebuff.count = myDebuff:CreateFontString(nil, "OVERLAY")
-		myDebuff.count:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-		myDebuff.count:SetPoint("BOTTOMRIGHT", myDebuff, "BOTTOMRIGHT", 0, 0)
-
-		myDebuff:Hide()
-		frame.myDebuffs[i] = myDebuff
-	end
+	frame.myDebuffs = CreateAuraRow(frame, {
+		count = 5,
+		size = 20,
+		spacing = 2,
+		anchor = {
+			point = "TOPLEFT",
+			relativeTo = frame.debuffs[1],
+			relativePoint = "BOTTOMLEFT",
+			x = 0,
+			y = -2,
+		},
+	})
 
 	-- Enable mouse clicks
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
-	-- Set unit for secure click handling
-	frame:SetAttribute("unit", "focus")
-	frame:SetAttribute("*type1", "target") -- Left click = target the unit
-	frame:SetAttribute("*type2", "clearfocus") -- Right click = clear focus
+	local focusDropdown = CreateUnitInteractionDropdown("focus", "UFI_FocusFrameDropDown", {
+		fallbackTitle = FOCUS or "Focus",
+		extraLevel1Buttons = function(level, unitId, addButton)
+			local clearLabel = CLEAR_FOCUS or "Clear Focus"
+			addButton(level, function(info)
+				info.text = clearLabel
+				info.notCheckable = true
+				info.func = function()
+					ClearFocus()
+					CloseDropDownMenus()
+				end
+				info.disabled = not UnitExists(unitId)
+			end)
+		end,
+	})
 
-	-- Use RegisterStateDriver for secure show/hide based on focus existence
+	SecureUnitButton_OnLoad(frame, "focus", function(self, unit, button)
+		ToggleDropDownMenu(1, nil, focusDropdown, self, 110, 45)
+	end)
+
 	RegisterStateDriver(frame, "visibility", "[target=focus,exists] show; hide")
 
 	return frame
@@ -1690,72 +1639,55 @@ local function CreateTargetOfTargetFrame()
 	frame:SetFrameLevel(1)
 	frame:SetScale(0.6) -- Scale to 50% (half size)
 
-	-- Health bar - SAME as player frame
-	frame.healthBar = CreateFrame("StatusBar", nil, frame)
-	frame.healthBar:SetSize(108, 24)
-	frame.healthBar:SetPoint("TOPLEFT", 97, -20)
-	frame.healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.healthBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.healthBar:GetStatusBarTexture():SetVertTile(false)
-	frame.healthBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.healthBar:SetMinMaxValues(0, 100)
-	frame.healthBar:SetValue(100)
-	frame.healthBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 97,
+		y = -20,
+	})
 
-	-- Health bar background
-	frame.healthBarBg = frame.healthBar:CreateTexture(nil, "BACKGROUND")
-	frame.healthBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.healthBarBg:SetAllPoints(frame.healthBar)
+	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 97,
+		y = -46,
+	})
 
-	if frame.healthBar.SetBackdrop then
-		frame.healthBar:SetBackdrop(nil)
-	end
+	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { mirror = true })
 
-	-- Power bar - SAME as player frame
-	frame.powerBar = CreateFrame("StatusBar", nil, frame)
-	frame.powerBar:SetSize(108, 9)
-	frame.powerBar:SetPoint("TOPLEFT", 97, -46)
-	frame.powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	frame.powerBar:GetStatusBarTexture():SetHorizTile(false)
-	frame.powerBar:GetStatusBarTexture():SetVertTile(false)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
-	frame.powerBar:SetMinMaxValues(0, 100)
-	frame.powerBar:SetValue(100)
-	frame.powerBar:SetFrameLevel(frame:GetFrameLevel() - 1)
+	frame.portrait = CreatePortrait(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 68,
+		y = -38,
+	})
 
-	-- Power bar background
-	frame.powerBarBg = frame.powerBar:CreateTexture(nil, "BACKGROUND")
-	frame.powerBarBg:SetTexture(0, 0, 0, 0.35)
-	frame.powerBarBg:SetAllPoints(frame.powerBar)
+	frame.nameText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 0,
+		size = 9,
+		flags = "OUTLINE",
+		drawLayer = 7,
+	})
+	frame.nameText:SetText("")
 
-	if frame.powerBar.SetBackdrop then
-		frame.powerBar:SetBackdrop(nil)
-	end
-
-	-- Frame texture - use BORDER layer to match target frame
-	frame.texture = frame:CreateTexture(nil, "BORDER", nil, 0)
-	frame.texture:SetTexture("Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame")
-	frame.texture:SetPoint("TOPLEFT", 0, 0)
-	frame.texture:SetSize(232, 110)
-	frame.texture:SetTexCoord(1, 0, 0, 1) -- Flipped like player frame
-
-	-- Portrait - SAME as player frame
-	frame.portrait = frame:CreateTexture(nil, "BACKGROUND")
-	frame.portrait:SetSize(50, 48)
-	frame.portrait:SetPoint("CENTER", frame, "TOPLEFT", 68, -38)
-	local circularCrop = 0.08
-	frame.portrait:SetTexCoord(circularCrop, 1 - circularCrop, circularCrop, 1 - circularCrop)
-
-	-- Name text - centered on health bar like player frame
-	frame.nameText = frame.healthBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	frame.nameText:SetPoint("CENTER", frame.healthBar, "CENTER", 0, 0)
-	frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
-
-	-- Level text
-	frame.levelText = frame:CreateFontString(nil, "OVERLAY")
-	frame.levelText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	frame.levelText:SetPoint("CENTER", frame, "TOPLEFT", 48, -56)
-	frame.levelText:SetTextColor(1, 0.82, 0) -- Gold color
+	frame.levelText = CreateFontString(frame, {
+		point = "CENTER",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = 48,
+		y = -56,
+		size = 8,
+		flags = "OUTLINE",
+		color = { r = 1, g = 0.82, b = 0 },
+		drawLayer = 0,
+	})
 
 	-- Enable mouse clicks
 	frame:EnableMouse(true)
@@ -1780,7 +1712,7 @@ local function FormatStatusText(current, max)
 	-- Check if "Display Percentages" is checked in Interface Options > Status Text
 	-- The CVar is "statusTextPercentage" and is "1" when checked, "0" when unchecked
 	local statusTextPercentage = GetCVar("statusTextPercentage")
-	
+
 	-- Check if percentages are enabled
 	if statusTextPercentage == "1" then
 		-- Show percentage
@@ -2265,80 +2197,102 @@ local function UpdateFocusClassification()
 	end
 end
 
-local function UpdateFocusAuras()
-	if not UFI_FocusFrame or not UnitExists("focus") then
-		-- Hide all auras
-		for i = 1, 5 do
-			UFI_FocusFrame.buffs[i]:Hide()
-			UFI_FocusFrame.debuffs[i]:Hide()
-			UFI_FocusFrame.myDebuffs[i]:Hide()
-		end
+local function HideAuraRows(frame)
+	if not frame then
 		return
 	end
 
-	-- Collect all buffs and sort by duration (shortest first)
+	if frame.buffs then
+		for i = 1, #frame.buffs do
+			frame.buffs[i]:Hide()
+		end
+	end
+
+	if frame.debuffs then
+		for i = 1, #frame.debuffs do
+			frame.debuffs[i]:Hide()
+		end
+	end
+
+	if frame.myDebuffs then
+		for i = 1, #frame.myDebuffs do
+			frame.myDebuffs[i]:Hide()
+		end
+	end
+end
+
+local function SortByRemainingTime(a, b)
+	return a.remainingTime < b.remainingTime
+end
+
+local function UpdateUnitAuras(unit, frame)
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		HideAuraRows(frame)
+		return
+	end
+
+	local now = GetTime()
+
 	local allBuffs = {}
 	for i = 1, 40 do
-		local name, rank, icon, count, debuffType, duration, expirationTime = UnitBuff("focus", i)
+		local name, _, icon, count, _, duration, expirationTime = UnitBuff(unit, i)
 		if not name then
 			break
 		end
 
-		local remainingTime = 999999 -- Default for permanent buffs (no duration)
+		local remainingTime = 999999
 		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - GetTime()
+			remainingTime = expirationTime - now
 		end
 
-		table.insert(allBuffs, {
+		allBuffs[#allBuffs + 1] = {
 			icon = icon,
 			count = count,
 			duration = duration,
 			expirationTime = expirationTime,
 			remainingTime = remainingTime,
-		})
+		}
 	end
 
-	-- Sort buffs: shortest duration first
-	table.sort(allBuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
+	table.sort(allBuffs, SortByRemainingTime)
 
-	-- Display up to 5 buffs
-	for i = 1, 5 do
-		if allBuffs[i] then
-			local buff = UFI_FocusFrame.buffs[i]
-			buff.icon:SetTexture(allBuffs[i].icon)
-
-			-- Set cooldown for OmniCC
-			if allBuffs[i].duration and allBuffs[i].duration > 0 and allBuffs[i].expirationTime then
-				buff.cooldown:SetCooldown(allBuffs[i].expirationTime - allBuffs[i].duration, allBuffs[i].duration)
-			end
-
-			if allBuffs[i].count and allBuffs[i].count > 1 then
-				buff.count:SetText(allBuffs[i].count)
-				buff.count:Show()
+	if frame.buffs then
+		for i = 1, #frame.buffs do
+			local buffFrame = frame.buffs[i]
+			local data = allBuffs[i]
+			if data then
+				buffFrame.icon:SetTexture(data.icon)
+				if data.duration and data.duration > 0 and data.expirationTime then
+					buffFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
+				end
+				if data.count and data.count > 1 then
+					buffFrame.count:SetText(data.count)
+					buffFrame.count:Show()
+				else
+					buffFrame.count:Hide()
+				end
+				buffFrame:Show()
 			else
-				buff.count:Hide()
+				buffFrame:Hide()
 			end
-			buff:Show()
-		else
-			UFI_FocusFrame.buffs[i]:Hide()
 		end
 	end
 
-	-- Collect all debuffs, separating player's from others'
 	local myDebuffs = {}
 	local otherDebuffs = {}
-
 	for i = 1, 40 do
-		local name, rank, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff("focus", i)
+		local name, _, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff(unit, i)
 		if not name then
 			break
 		end
 
-		local remainingTime = 999999 -- Default for permanent debuffs
+		local remainingTime = 999999
 		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - GetTime()
+			remainingTime = expirationTime - now
 		end
 
 		local debuffData = {
@@ -2351,65 +2305,59 @@ local function UpdateFocusAuras()
 		}
 
 		if caster == "player" then
-			table.insert(myDebuffs, debuffData)
+			myDebuffs[#myDebuffs + 1] = debuffData
 		else
-			table.insert(otherDebuffs, debuffData)
+			otherDebuffs[#otherDebuffs + 1] = debuffData
 		end
 	end
 
-	-- Sort both lists by duration (shortest first)
-	table.sort(myDebuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
-	table.sort(otherDebuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
+	table.sort(myDebuffs, SortByRemainingTime)
+	table.sort(otherDebuffs, SortByRemainingTime)
 
-	-- Combine: my debuffs first, then others' debuffs
 	local allDebuffs = {}
 	for _, debuff in ipairs(myDebuffs) do
-		table.insert(allDebuffs, debuff)
+		allDebuffs[#allDebuffs + 1] = debuff
 	end
 	for _, debuff in ipairs(otherDebuffs) do
-		table.insert(allDebuffs, debuff)
+		allDebuffs[#allDebuffs + 1] = debuff
 	end
 
-	-- Display up to 5 debuffs in row 2
-	for i = 1, 5 do
-		if allDebuffs[i] then
-			local debuff = UFI_FocusFrame.debuffs[i]
-			debuff.icon:SetTexture(allDebuffs[i].icon)
+	if frame.debuffs then
+		for i = 1, #frame.debuffs do
+			local debuffFrame = frame.debuffs[i]
+			local data = allDebuffs[i]
+			if data then
+				debuffFrame.icon:SetTexture(data.icon)
+				local color = DebuffTypeColor[data.debuffType or "none"] or DebuffTypeColor["none"]
+				debuffFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+				debuffFrame.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+				debuffFrame.border:SetVertexColor(color[1], color[2], color[3])
 
-			-- Set border color based on debuff type
-			local color = DebuffTypeColor[allDebuffs[i].debuffType or "none"] or DebuffTypeColor["none"]
-			debuff.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-			debuff.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-			debuff.border:SetVertexColor(color[1], color[2], color[3])
-
-			-- Set cooldown for OmniCC
-			if allDebuffs[i].duration and allDebuffs[i].duration > 0 and allDebuffs[i].expirationTime then
-				debuff.cooldown:SetCooldown(
-					allDebuffs[i].expirationTime - allDebuffs[i].duration,
-					allDebuffs[i].duration
-				)
-			end
-
-			if allDebuffs[i].count and allDebuffs[i].count > 1 then
-				debuff.count:SetText(allDebuffs[i].count)
-				debuff.count:Show()
+				if data.duration and data.duration > 0 and data.expirationTime then
+					debuffFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
+				end
+				if data.count and data.count > 1 then
+					debuffFrame.count:SetText(data.count)
+					debuffFrame.count:Show()
+				else
+					debuffFrame.count:Hide()
+				end
+				debuffFrame:Show()
 			else
-				debuff.count:Hide()
+				debuffFrame:Hide()
 			end
-			debuff:Show()
-		else
-			UFI_FocusFrame.debuffs[i]:Hide()
 		end
 	end
 
-	-- Hide row 3 (myDebuffs) - no longer used
-	for i = 1, 5 do
-		UFI_FocusFrame.myDebuffs[i]:Hide()
+	if frame.myDebuffs then
+		for i = 1, #frame.myDebuffs do
+			frame.myDebuffs[i]:Hide()
+		end
 	end
+end
+
+local function UpdateFocusAuras()
+	UpdateUnitAuras("focus", UFI_FocusFrame)
 end
 
 local function UpdateFocusFrame()
@@ -2442,150 +2390,7 @@ local DebuffTypeColor = {
 }
 
 local function UpdateTargetAuras()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		-- Hide all auras
-		for i = 1, 5 do
-			UFI_TargetFrame.buffs[i]:Hide()
-			UFI_TargetFrame.debuffs[i]:Hide()
-			UFI_TargetFrame.myDebuffs[i]:Hide()
-		end
-		return
-	end
-
-	-- Collect all buffs and sort by duration (shortest first)
-	local allBuffs = {}
-	for i = 1, 40 do
-		local name, rank, icon, count, debuffType, duration, expirationTime = UnitBuff("target", i)
-		if not name then
-			break
-		end
-
-		local remainingTime = 999999 -- Default for permanent buffs (no duration)
-		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - GetTime()
-		end
-
-		table.insert(allBuffs, {
-			icon = icon,
-			count = count,
-			duration = duration,
-			expirationTime = expirationTime,
-			remainingTime = remainingTime,
-		})
-	end
-
-	-- Sort buffs: shortest duration first
-	table.sort(allBuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
-
-	-- Display up to 5 buffs
-	for i = 1, 5 do
-		if allBuffs[i] then
-			local buff = UFI_TargetFrame.buffs[i]
-			buff.icon:SetTexture(allBuffs[i].icon)
-
-			-- Set cooldown for OmniCC
-			if allBuffs[i].duration and allBuffs[i].duration > 0 and allBuffs[i].expirationTime then
-				buff.cooldown:SetCooldown(allBuffs[i].expirationTime - allBuffs[i].duration, allBuffs[i].duration)
-			end
-
-			if allBuffs[i].count and allBuffs[i].count > 1 then
-				buff.count:SetText(allBuffs[i].count)
-				buff.count:Show()
-			else
-				buff.count:Hide()
-			end
-			buff:Show()
-		else
-			UFI_TargetFrame.buffs[i]:Hide()
-		end
-	end
-
-	-- Collect all debuffs, separating player's from others'
-	local myDebuffs = {}
-	local otherDebuffs = {}
-
-	for i = 1, 40 do
-		local name, rank, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff("target", i)
-		if not name then
-			break
-		end
-
-		local remainingTime = 999999 -- Default for permanent debuffs
-		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - GetTime()
-		end
-
-		local debuffData = {
-			icon = icon,
-			count = count,
-			debuffType = debuffType,
-			duration = duration,
-			expirationTime = expirationTime,
-			remainingTime = remainingTime,
-		}
-
-		if caster == "player" then
-			table.insert(myDebuffs, debuffData)
-		else
-			table.insert(otherDebuffs, debuffData)
-		end
-	end
-
-	-- Sort both lists by duration (shortest first)
-	table.sort(myDebuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
-	table.sort(otherDebuffs, function(a, b)
-		return a.remainingTime < b.remainingTime
-	end)
-
-	-- Combine: my debuffs first, then others' debuffs
-	local allDebuffs = {}
-	for _, debuff in ipairs(myDebuffs) do
-		table.insert(allDebuffs, debuff)
-	end
-	for _, debuff in ipairs(otherDebuffs) do
-		table.insert(allDebuffs, debuff)
-	end
-
-	-- Display up to 5 debuffs in row 2
-	for i = 1, 5 do
-		if allDebuffs[i] then
-			local debuff = UFI_TargetFrame.debuffs[i]
-			debuff.icon:SetTexture(allDebuffs[i].icon)
-
-			-- Set border color based on debuff type
-			local color = DebuffTypeColor[allDebuffs[i].debuffType or "none"] or DebuffTypeColor["none"]
-			debuff.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-			debuff.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-			debuff.border:SetVertexColor(color[1], color[2], color[3])
-
-			-- Set cooldown for OmniCC
-			if allDebuffs[i].duration and allDebuffs[i].duration > 0 and allDebuffs[i].expirationTime then
-				debuff.cooldown:SetCooldown(
-					allDebuffs[i].expirationTime - allDebuffs[i].duration,
-					allDebuffs[i].duration
-				)
-			end
-
-			if allDebuffs[i].count and allDebuffs[i].count > 1 then
-				debuff.count:SetText(allDebuffs[i].count)
-				debuff.count:Show()
-			else
-				debuff.count:Hide()
-			end
-			debuff:Show()
-		else
-			UFI_TargetFrame.debuffs[i]:Hide()
-		end
-	end
-
-	-- Hide row 3 (myDebuffs) - no longer used
-	for i = 1, 5 do
-		UFI_TargetFrame.myDebuffs[i]:Hide()
-	end
+	UpdateUnitAuras("target", UFI_TargetFrame)
 end
 
 -------------------------------------------------------------------------------
@@ -2714,96 +2519,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdateTargetClassification()
 		UpdateTargetAuras()
 		UpdateTargetOfTarget()
-
-		-- Check if target is already casting/channeling when we target them
-		if UFI_TargetFrame and UFI_TargetFrame.castBar then
-			local castBar = UFI_TargetFrame.castBar
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo("target")
-			if name then
-				-- Target is casting
-				castBar.value = (GetTime() * 1000 - startTime) / (endTime - startTime)
-				castBar.startTime = startTime
-				castBar.endTime = endTime
-				castBar.casting = true
-				castBar.channeling = false
-				castBar.state = CASTBAR_STATE.CASTING
-
-				castBar.icon:SetTexture(texture)
-				castBar.text:SetText(text)
-				castBar:SetStatusBarColor(1.0, 0.7, 0.0)
-				castBar:SetValue(castBar.value)
-				castBar:Show()
-			else
-				-- Check if channeling
-				name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-					UnitChannelInfo("target")
-				if name then
-					castBar.value = (endTime - GetTime() * 1000) / (endTime - startTime)
-					castBar.startTime = startTime
-					castBar.endTime = endTime
-					castBar.casting = false
-					castBar.channeling = true
-					castBar.state = CASTBAR_STATE.CHANNELING
-
-					castBar.icon:SetTexture(texture)
-					castBar.text:SetText(text)
-					castBar:SetStatusBarColor(0.0, 1.0, 0.0)
-					castBar:SetValue(castBar.value)
-					castBar:Show()
-				else
-					-- Not casting or channeling
-					castBar.state = CASTBAR_STATE.HIDDEN
-					castBar:Hide()
-				end
-			end
-		end
+		RefreshCastBar("target")
 	elseif event == "PLAYER_FOCUS_CHANGED" then
 		UpdateFocusFrame()
-
-		-- Check if focus is already casting/channeling when we focus them
-		if UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local castBar = UFI_FocusFrame.castBar
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo("focus")
-			if name then
-				-- Focus is casting
-				castBar.value = (GetTime() * 1000 - startTime) / (endTime - startTime)
-				castBar.startTime = startTime
-				castBar.endTime = endTime
-				castBar.spellName = text
-				castBar.spellTexture = texture
-				castBar.notInterruptible = notInterruptible
-				castBar.state = CASTBAR_STATE.CASTING
-				castBar.icon:SetTexture(texture)
-				castBar.text:SetText(text)
-				castBar:SetStatusBarColor(1.0, 0.7, 0.0)
-				castBar:SetValue(castBar.value)
-				castBar:Show()
-			else
-				-- Check for channeling
-				name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-					UnitChannelInfo("focus")
-				if name then
-					castBar.value = (endTime - GetTime() * 1000) / (endTime - startTime)
-					castBar.startTime = startTime
-					castBar.endTime = endTime
-					castBar.spellName = text
-					castBar.spellTexture = texture
-					castBar.notInterruptible = notInterruptible
-					castBar.state = CASTBAR_STATE.CHANNELING
-					castBar.icon:SetTexture(texture)
-					castBar.text:SetText(text)
-					castBar:SetStatusBarColor(0.0, 1.0, 0.0)
-					castBar:SetValue(castBar.value)
-					castBar:Show()
-				else
-					-- Not casting or channeling
-					castBar.state = CASTBAR_STATE.HIDDEN
-					castBar:Hide()
-				end
-			end
-		end
+		RefreshCastBar("focus")
 	elseif event == "UNIT_HEALTH" then
 		local unit = ...
 		if unit == "player" then
@@ -2891,177 +2610,33 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 	-- Cast bar events
 	elseif event == "UNIT_SPELLCAST_START" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			-- WotLK 3.3.5: name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo(unit)
-			if name then
-				local castBar = UFI_TargetFrame.castBar
-				castBar.state = CASTBAR_STATE.CASTING
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-				castBar.notInterruptible = notInterruptible or false
-				castBar.spellName = name
-				castBar.spellTexture = texture
-				castBar.text:SetText(name)
-				castBar.icon:SetTexture(texture)
-				castBar:SetAlpha(1)
-				castBar:Show()
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo(unit)
-			if name then
-				local castBar = UFI_FocusFrame.castBar
-				castBar.state = CASTBAR_STATE.CASTING
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-				castBar.notInterruptible = notInterruptible or false
-				castBar.spellName = name
-				castBar.spellTexture = texture
-				castBar.text:SetText(name)
-				castBar.icon:SetTexture(texture)
-				castBar:SetAlpha(1)
-				castBar:Show()
-			end
-		end
+		BeginCast(unit, false)
 	elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			-- WotLK 3.3.5: name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible (no castID)
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-				UnitChannelInfo(unit)
-			if name then
-				local castBar = UFI_TargetFrame.castBar
-				castBar.state = CASTBAR_STATE.CHANNELING
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-				castBar.notInterruptible = notInterruptible or false
-				castBar.spellName = name
-				castBar.spellTexture = texture
-				castBar.text:SetText(name)
-				castBar.icon:SetTexture(texture)
-				castBar:SetAlpha(1)
-				castBar:Show()
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-				UnitChannelInfo(unit)
-			if name then
-				local castBar = UFI_FocusFrame.castBar
-				castBar.state = CASTBAR_STATE.CHANNELING
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-				castBar.notInterruptible = notInterruptible or false
-				castBar.spellName = name
-				castBar.spellTexture = texture
-				castBar.text:SetText(name)
-				castBar.icon:SetTexture(texture)
-				castBar:SetAlpha(1)
-				castBar:Show()
-			end
-		end
+		BeginCast(unit, true)
 	elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			local castBar = UFI_TargetFrame.castBar
-			if castBar.state == CASTBAR_STATE.CASTING or castBar.state == CASTBAR_STATE.CHANNELING then
-				castBar.state = CASTBAR_STATE.FADING
-				castBar.fadeStartTime = GetTime()
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local castBar = UFI_FocusFrame.castBar
-			if castBar.state == CASTBAR_STATE.CASTING or castBar.state == CASTBAR_STATE.CHANNELING then
-				castBar.state = CASTBAR_STATE.FADING
-				castBar.fadeStartTime = GetTime()
-			end
-		end
+		StopCast(unit)
 	elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			local castBar = UFI_TargetFrame.castBar
-			if castBar.state ~= CASTBAR_STATE.FINISHED then
-				if event == "UNIT_SPELLCAST_INTERRUPTED" then
-					castBar:SetStatusBarColor(1, 0, 0) -- Red
-					castBar.text:SetText("Interrupted")
-				else
-					castBar:SetStatusBarColor(0.5, 0.5, 0.5) -- Gray
-					castBar.text:SetText("Failed")
-				end
-				castBar:SetValue(1)
-				castBar:SetAlpha(1)
-				castBar:Show()
-				castBar.state = CASTBAR_STATE.FINISHED
-				castBar.holdUntil = GetTime() + 0.5
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local castBar = UFI_FocusFrame.castBar
-			if castBar.state ~= CASTBAR_STATE.FINISHED then
-				if event == "UNIT_SPELLCAST_INTERRUPTED" then
-					castBar:SetStatusBarColor(1, 0, 0) -- Red
-					castBar.text:SetText("Interrupted")
-				else
-					castBar:SetStatusBarColor(0.5, 0.5, 0.5) -- Gray
-					castBar.text:SetText("Failed")
-				end
-				castBar:SetValue(1)
-				castBar:SetAlpha(1)
-				castBar:Show()
-				castBar.state = CASTBAR_STATE.FINISHED
-				castBar.holdUntil = GetTime() + 0.5
-			end
-		end
+		FailCast(unit, event == "UNIT_SPELLCAST_INTERRUPTED")
 	elseif event == "UNIT_SPELLCAST_DELAYED" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo(unit)
-			if name then
-				local castBar = UFI_TargetFrame.castBar
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible =
-				UnitCastingInfo(unit)
-			if name then
-				local castBar = UFI_FocusFrame.castBar
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-			end
-		end
+		AdjustCastTiming(unit, false)
 	elseif event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-				UnitChannelInfo(unit)
-			if name then
-				local castBar = UFI_TargetFrame.castBar
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-			end
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			local name, nameSubtext, text, texture, startTime, endTime, isTradeSkill, notInterruptible =
-				UnitChannelInfo(unit)
-			if name then
-				local castBar = UFI_FocusFrame.castBar
-				castBar.startTime = startTime / 1000
-				castBar.endTime = endTime / 1000
-			end
-		end
+		AdjustCastTiming(unit, true)
 	elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			UFI_TargetFrame.castBar.notInterruptible = false
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			UFI_FocusFrame.castBar.notInterruptible = false
+		local castBar = castBarsByUnit[unit]
+		if castBar then
+			castBar.notInterruptible = false
 		end
 	elseif event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
 		local unit = ...
-		if unit == "target" and UFI_TargetFrame and UFI_TargetFrame.castBar then
-			UFI_TargetFrame.castBar.notInterruptible = true
-		elseif unit == "focus" and UFI_FocusFrame and UFI_FocusFrame.castBar then
-			UFI_FocusFrame.castBar.notInterruptible = true
+		local castBar = castBarsByUnit[unit]
+		if castBar then
+			castBar.notInterruptible = true
 		end
 	elseif event == "PLAYER_LOGOUT" then
 		-- Save all frame positions before logout
@@ -3084,18 +2659,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- OnUpdate for cast bar
-eventFrame:SetScript("OnUpdate", function(self, elapsed)
-	if UFI_TargetFrame and UFI_TargetFrame.castBar then
-		local state = UFI_TargetFrame.castBar.state
-		if state ~= CASTBAR_STATE.HIDDEN then
-			UpdateTargetCastBar(UFI_TargetFrame.castBar, elapsed)
-		end
-	end
-
-	if UFI_FocusFrame and UFI_FocusFrame.castBar then
-		local state = UFI_FocusFrame.castBar.state
-		if state ~= CASTBAR_STATE.HIDDEN then
-			UpdateFocusCastBar(UFI_FocusFrame.castBar, elapsed)
+eventFrame:SetScript("OnUpdate", function()
+	for _, castBar in pairs(castBarsByUnit) do
+		if castBar.state ~= CASTBAR_STATE.HIDDEN then
+			UpdateCastBar(castBar)
 		end
 	end
 end)
