@@ -84,6 +84,15 @@ local FRAME_TEXTURES = {
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }
 
+local SELF_BUFF_EXCLUSIONS = {
+	[91794] = true,
+	[498752] = true,
+	[9931032] = true,
+	[91796] = true,
+	[91814] = true,
+	[170021] = true,
+}
+
 local function CreateStatusBar(parent, size, anchor)
 	local bar = CreateFrame("StatusBar", nil, parent)
 	bar:SetSize(size.width, size.height)
@@ -899,6 +908,22 @@ local function CreatePlayerFrame()
 		color = { r = 1, g = 1, b = 1 },
 	})
 	frame.powerText:SetText("")
+
+	frame.selfBuffs = CreateAuraRow(frame, {
+		count = 8,
+		size = 20,
+		spacing = 2,
+		anchor = {
+			point = "BOTTOMLEFT",
+			relativeTo = frame.healthBar,
+			relativePoint = "TOPLEFT",
+			x = 2,
+			y = 4,
+		},
+	})
+	for i = 1, #frame.selfBuffs do
+		frame.selfBuffs[i].border:SetVertexColor(1, 1, 1)
+	end
 
 	-- Enable mouse clicks and set up secure click handling
 	frame:EnableMouse(true)
@@ -2380,6 +2405,71 @@ local function UpdateFocusAuras()
 	UpdateUnitAuras("focus", UFI_FocusFrame)
 end
 
+local function UpdatePlayerAuras()
+	if not UFI_PlayerFrame or not UFI_PlayerFrame.selfBuffs then
+		return
+	end
+
+	local now = GetTime()
+	local selfBuffs = {}
+
+	for i = 1, 40 do
+		local name, _, icon, count, _, duration, expirationTime, caster, _, _, spellId = UnitBuff("player", i)
+		if not name then
+			break
+		end
+
+		if
+			(caster == "player" or caster == "pet" or caster == "vehicle")
+			and not (spellId and SELF_BUFF_EXCLUSIONS[spellId])
+		then
+			local remainingTime = 999999
+			if duration and duration > 0 and expirationTime then
+				remainingTime = expirationTime - now
+			end
+
+			selfBuffs[#selfBuffs + 1] = {
+				icon = icon,
+				count = count,
+				duration = duration,
+				expirationTime = expirationTime,
+				remainingTime = remainingTime,
+			}
+		end
+	end
+
+	table.sort(selfBuffs, SortByRemainingTime)
+
+	for i = 1, #UFI_PlayerFrame.selfBuffs do
+		local iconFrame = UFI_PlayerFrame.selfBuffs[i]
+		local data = selfBuffs[i]
+
+		if data then
+			iconFrame.icon:SetTexture(data.icon)
+			if data.duration and data.duration > 0 and data.expirationTime then
+				iconFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
+				iconFrame.cooldown:Show()
+			else
+				iconFrame.cooldown:Hide()
+			end
+
+			if data.count and data.count > 1 then
+				iconFrame.count:SetText(data.count)
+				iconFrame.count:Show()
+			else
+				iconFrame.count:Hide()
+			end
+
+			iconFrame.border:SetVertexColor(1, 1, 1)
+			iconFrame:Show()
+		else
+			iconFrame.cooldown:Hide()
+			iconFrame.count:Hide()
+			iconFrame:Hide()
+		end
+	end
+end
+
 local function UpdateFocusFrame()
 	if not UFI_FocusFrame then
 		return
@@ -2525,6 +2615,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdatePlayerPortrait()
 		UpdatePlayerName()
 		UpdatePlayerLevel()
+		UpdatePlayerAuras()
 
 		-- Update focus frame if focus exists
 		if UnitExists("focus") then
@@ -2614,7 +2705,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		end
 	elseif event == "UNIT_AURA" then
 		local unit = ...
-		if unit == "target" then
+		if unit == "player" then
+			UpdatePlayerAuras()
+		elseif unit == "target" then
 			UpdateTargetAuras()
 		elseif unit == "focus" then
 			UpdateFocusAuras()
