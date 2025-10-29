@@ -948,6 +948,26 @@ local function CreatePlayerFrame()
 				info.value = "RAID_TARGET"
 			end)
 
+			local partyMemberCount = GetNumPartyMembers()
+			local raidMemberCount = GetNumRaidMembers()
+			if partyMemberCount > 0 or raidMemberCount > 0 then
+				local isRaid = raidMemberCount > 0
+				local leaveText
+				if isRaid then
+					leaveText = LEAVE_RAID or LEAVE_GROUP or LEAVE_PARTY or "Leave Raid"
+				else
+					leaveText = LEAVE_PARTY or LEAVE_GROUP or "Leave Party"
+				end
+
+				addButton(level, function(leaveInfo)
+					leaveInfo.text = leaveText
+					leaveInfo.notCheckable = true
+					leaveInfo.func = function()
+						LeaveParty()
+					end
+				end)
+			end
+
 			addButton(level, function(info)
 				info.text = CANCEL
 				info.notCheckable = true
