@@ -91,6 +91,8 @@ local SELF_BUFF_EXCLUSIONS = {
 	[91796] = true,
 	[91814] = true,
 	[170021] = true,
+	[72221] = true, -- Luck of the Draw
+	[91810] = true, -- Keeper's Scroll: Gathering Speed
 }
 
 local function CreateStatusBar(parent, size, anchor)
