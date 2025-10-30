@@ -839,13 +839,13 @@ local function CreatePlayerFrame()
 	local frame = CreateFrame("Button", "UFI_PlayerFrame", UIParent, "SecureUnitButtonTemplate")
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4) -- Default Blizzard PlayerFrame position
-	frame:SetFrameStrata("MEDIUM")
+	frame:SetFrameStrata("LOW")
 	frame:SetFrameLevel(5)
 	frame:SetScale(1.15) -- Slightly larger than default
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
-	visual:SetFrameStrata("MEDIUM")
+	visual:SetFrameStrata("LOW")
 	visual:SetFrameLevel(frame:GetFrameLevel() + 15)
 	frame.visualLayer = visual
 
@@ -922,7 +922,7 @@ local function CreatePlayerFrame()
 
 	-- Power text (OVERLAY layer - drawn on top of everything)
 	-- Must be child of main frame, not powerBar, to render above frame texture
-	frame.powerText = CreateFontString(frame, {
+	frame.powerText = CreateFontString(visual, {
 		point = "CENTER",
 		relativeTo = frame.powerBar,
 		relativePoint = "CENTER",
@@ -1353,7 +1353,7 @@ local function CreateTargetFrame()
 	local frame = CreateFrame("Button", "UFI_TargetFrame", UIParent, "SecureUnitButtonTemplate")
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -4) -- Default Blizzard TargetFrame position
-	frame:SetFrameStrata("MEDIUM")
+	frame:SetFrameStrata("LOW")
 	frame:SetFrameLevel(10)
 	frame:SetScale(1.15)
 
@@ -1528,7 +1528,7 @@ local function CreateFocusFrame()
 	frame:SetSize(232, 100)
 
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -250) -- Default Blizzard FocusFrame position
-	frame:SetFrameStrata("MEDIUM")
+	frame:SetFrameStrata("LOW")
 	frame:SetFrameLevel(1)
 	frame:SetScale(1.15)
 
@@ -1707,14 +1707,14 @@ local function CreateTargetOfTargetFrame()
 	local frame = CreateFrame("Button", "UFI_TargetOfTargetFrame", UIParent, "SecureUnitButtonTemplate")
 	frame:SetSize(232, 100) -- Same as player frame
 	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 95, 80) -- Below target portrait
-	frame:SetFrameStrata("MEDIUM")
+	frame:SetFrameStrata("LOW")
 	local targetFrameLevel = UFI_TargetFrame:GetFrameLevel() or 1
 	frame:SetFrameLevel(targetFrameLevel + 5)
 	frame:SetScale(0.6) -- Scale to 50% (half size)
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
-	visual:SetFrameStrata("MEDIUM")
+	visual:SetFrameStrata("LOW")
 	visual:SetFrameLevel(math.max(targetFrameLevel - 1, 0))
 	frame.visualLayer = visual
 
