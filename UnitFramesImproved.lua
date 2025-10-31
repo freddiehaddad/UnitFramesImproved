@@ -85,14 +85,20 @@ local FRAME_TEXTURES = {
 }
 
 local SELF_BUFF_EXCLUSIONS = {
+	[72221] = true, -- Luck of the Draw
+	[91769] = true, -- Keeper's Scroll: Steadfast
 	[91794] = true,
-	[498752] = true,
-	[9931032] = true,
 	[91796] = true,
+	[91810] = true, -- Keeper's Scroll: Gathering Speed
 	[91814] = true,
 	[170021] = true,
-	[72221] = true, -- Luck of the Draw
-	[91810] = true, -- Keeper's Scroll: Gathering Speed
+	[498752] = true,
+	[993943] = true, -- Titan Scroll: Norgannon
+	[993955] = true, -- Titan Scroll: Khaz'goroth
+	[993957] = true, -- Titan Scroll: Eonar
+	[993959] = true, -- Titan Scroll: Aggramar
+	[993961] = true, -- Titan Scroll: Golganneth
+	[9931032] = true,
 }
 
 local function CreateStatusBar(parent, size, anchor)
