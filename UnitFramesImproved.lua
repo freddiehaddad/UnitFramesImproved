@@ -89,6 +89,7 @@ local SELF_BUFF_EXCLUSIONS = {
 	[91769] = true, -- Keeper's Scroll: Steadfast
 	[91794] = true,
 	[91796] = true,
+	[91803] = true, -- Keeper's Scroll: Ghost Runner
 	[91810] = true, -- Keeper's Scroll: Gathering Speed
 	[91814] = true,
 	[170021] = true,
