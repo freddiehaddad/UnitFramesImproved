@@ -942,7 +942,7 @@ local function CreatePlayerFrame()
 	frame.powerText:SetText("")
 
 	frame.selfBuffs = CreateAuraRow(frame, {
-		count = 8,
+		count = 5,
 		size = 20,
 		spacing = 2,
 		anchor = {
