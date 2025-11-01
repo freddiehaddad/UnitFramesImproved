@@ -2183,7 +2183,7 @@ local function CreateBossFrames()
 				point = "TOP",
 				relativeTo = frame,
 				relativePoint = "BOTTOM",
-				x = 0,
+				x = 10,
 				y = -4,
 			},
 		})
