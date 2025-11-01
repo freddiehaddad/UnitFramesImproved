@@ -1799,16 +1799,16 @@ local function CreateTargetOfTargetFrame()
 	-- Main frame container - SAME SIZE as player frame, will scale down (Button for secure click handling)
 	local frame = CreateFrame("Button", "UFI_TargetOfTargetFrame", UIParent, "SecureUnitButtonTemplate")
 	frame:SetSize(232, 100) -- Same as player frame
-	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 95, 80) -- Below target portrait
+	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 100, 80) -- Below target portrait
 	frame:SetFrameStrata("LOW")
 	local targetFrameLevel = UFI_TargetFrame:GetFrameLevel() or 1
-	frame:SetFrameLevel(targetFrameLevel + 5)
+	frame:SetFrameLevel(targetFrameLevel + 6)
 	frame:SetScale(0.6) -- Scale to 50% (half size)
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
 	visual:SetFrameStrata("LOW")
-	visual:SetFrameLevel(math.max(targetFrameLevel - 1, 0))
+	visual:SetFrameLevel(frame:GetFrameLevel() - 1)
 	frame.visualLayer = visual
 
 	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
