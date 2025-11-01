@@ -1757,18 +1757,6 @@ local function CreateFocusFrame()
 
 	local focusDropdown = CreateUnitInteractionDropdown("focus", "UFI_FocusFrameDropDown", {
 		fallbackTitle = FOCUS or "Focus",
-		extraLevel1Buttons = function(level, unitId, addButton)
-			local clearLabel = CLEAR_FOCUS or "Clear Focus"
-			addButton(level, function(info)
-				info.text = clearLabel
-				info.notCheckable = true
-				info.func = function()
-					ClearFocus()
-					CloseDropDownMenus()
-				end
-				info.disabled = not UnitExists(unitId)
-			end)
-		end,
 	})
 
 	SecureUnitButton_OnLoad(frame, "focus", function(self, unit, button)

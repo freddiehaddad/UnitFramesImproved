@@ -12,7 +12,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 
 - **Player Frame** - Enhanced health/power display with resting indicator, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
-- **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and right-click to clear focus
+- **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and a tailored interaction menu
 - **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
 - **Boss Frames** - Four compact player-style boss frames stacked vertically with secure click targeting, integrated cast bars, automatic show/hide, and artwork that adapts to elite/rare/world classifications
 
@@ -59,8 +59,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 
 ### 🎯 Focus Frame Features
 
-- **Right-click to clear focus** - Quick and easy focus management
-- **Secure implementation** - No taint issues with focus clearing
+- **Custom interaction menu** - Tailored to focus targets with whisper, invite, and raid icon options
 - All standard features (cast bar, debuffs, portrait, etc.)
 
 ### 📍 Movable Frames
@@ -153,7 +152,7 @@ Type `/ufi help` in-game to see all available commands:
 ### Focus Management
 
 - **Set Focus**: Use the standard `/focus` command or Focus Target keybind
-- **Clear Focus**: Right-click the focus frame for instant clearing
+- **Clear Focus**: Use `/clearfocus` or your preferred keybind/macro
 
 ### Menu Interactions
 
@@ -195,7 +194,7 @@ The target-of-target frame mirrors Blizzard's Interface Options:
 ### Taint-Free Design
 
 - Uses **SecureUnitButtonTemplate** for all interactive frames
-- Secure attributes for focus clearing (`*type2 = "clearfocus"`)
+- Secure unit button templates and dropdown filtering to avoid taint
 - No protected function taint issues
 - Menu items filtered to avoid taint-causing operations
 - Combat detection prevents frame repositioning during encounters
