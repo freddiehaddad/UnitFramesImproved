@@ -175,7 +175,7 @@ local function CreateStatusBar(parent, size, anchor)
 	bar:SetFrameLevel(math.max(parentLevel - 1, 0))
 
 	local bg = bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.5)
+	bg:SetTexture(0, 0, 0, 0.75)
 	bg:SetAllPoints(bar)
 	bg:SetDrawLayer("BACKGROUND", -1)
 	bar.bg = bg
