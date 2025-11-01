@@ -10,7 +10,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 
 ### 🎯 Complete Frame Suite
 
-- **Player Frame** - Enhanced health/power display with resting indicator, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
+- **Player Frame** - Enhanced health/power display with resting indicator, aggro-tinting highlight, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
 - **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and a tailored interaction menu
 - **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode

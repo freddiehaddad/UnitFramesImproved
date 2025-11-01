@@ -85,6 +85,11 @@ local FRAME_TEXTURES = {
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }
 
+local PLAYER_TEXTURE_COLORS = {
+	normal = { r = 1, g = 1, b = 1 },
+	threat = { r = 1, g = 0.3, b = 0.3 },
+}
+
 local MAX_BOSS_FRAMES = 4
 local BOSS_FRAME_STRIDE = 120 -- vertical spacing per boss frame including cast bar clearance
 local BOSS_CLASSIFICATION_TEXTURES = {
@@ -960,6 +965,17 @@ local function CreatePlayerFrame()
 
 	frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
 	frame.portraitMask:SetBlendMode("BLEND")
+	frame.texture:SetVertexColor(
+		PLAYER_TEXTURE_COLORS.normal.r,
+		PLAYER_TEXTURE_COLORS.normal.g,
+		PLAYER_TEXTURE_COLORS.normal.b
+	)
+	frame.portraitMask:SetVertexColor(
+		PLAYER_TEXTURE_COLORS.normal.r,
+		PLAYER_TEXTURE_COLORS.normal.g,
+		PLAYER_TEXTURE_COLORS.normal.b
+	)
+	frame.currentVertexColor = PLAYER_TEXTURE_COLORS.normal
 
 	-- Level/Rest indicator text (displayed in the circular area at bottom left of portrait)
 	frame.levelText = CreateFontString(visual, {
@@ -2192,6 +2208,36 @@ end
 -- PLAYER FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
 
+local function ApplyPlayerTextureColor(color)
+	if not UFI_PlayerFrame or not color then
+		return
+	end
+
+	if UFI_PlayerFrame.currentVertexColor == color then
+		return
+	end
+
+	if UFI_PlayerFrame.texture then
+		UFI_PlayerFrame.texture:SetVertexColor(color.r, color.g, color.b)
+	end
+
+	if UFI_PlayerFrame.portraitMask then
+		UFI_PlayerFrame.portraitMask:SetVertexColor(color.r, color.g, color.b)
+	end
+
+	UFI_PlayerFrame.currentVertexColor = color
+end
+
+local function UpdatePlayerThreat()
+	local threatStatus = UnitThreatSituation("player")
+
+	if threatStatus and threatStatus >= 2 then
+		ApplyPlayerTextureColor(PLAYER_TEXTURE_COLORS.threat)
+	else
+		ApplyPlayerTextureColor(PLAYER_TEXTURE_COLORS.normal)
+	end
+end
+
 local function UpdatePlayerHealth()
 	if not UFI_PlayerFrame then
 		return
@@ -3007,6 +3053,7 @@ eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTIBLE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
 eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")
 eventFrame:RegisterEvent("UNIT_TARGETABLE_CHANGED")
+eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE")
 eventFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
@@ -3111,6 +3158,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdatePlayerName()
 		UpdatePlayerLevel()
 		UpdatePlayerAuras()
+		UpdatePlayerThreat()
 
 		UpdateTargetOfTarget()
 
@@ -3130,12 +3178,21 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdateTargetAuras()
 		UpdateTargetOfTarget()
 		RefreshCastBar("target")
+		UpdatePlayerThreat()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		UpdateTargetOfTarget()
 		UpdateAllBossFrames()
+		UpdatePlayerThreat()
 	elseif event == "PLAYER_FOCUS_CHANGED" then
 		UpdateFocusFrame()
 		RefreshCastBar("focus")
+	elseif event == "UNIT_THREAT_SITUATION_UPDATE" then
+		local unit = ...
+		if not unit or unit == "player" then
+			UpdatePlayerThreat()
+		end
+	elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+		UpdatePlayerThreat()
 	elseif event == "UNIT_HEALTH" then
 		local unit = ...
 		if unit == "player" then
