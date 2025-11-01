@@ -97,11 +97,11 @@ UnitFramesImproved/
 ├── UnitFramesImproved.toc    # Addon metadata
 ├── README.md                 # This file
 └── Textures/
-  ├── UI-FocusTargetingFrame.blp
+    ├── UI-FocusTargetingFrame.blp
     ├── UI-TargetingFrame.blp
     ├── UI-TargetingFrame-Elite.blp
-  ├── UI-TargetingFrame-Rare.blp
-  └── UI-TargetingFrame-Rare-Elite.blp
+    ├── UI-TargetingFrame-Rare.blp
+    └── UI-TargetingFrame-Rare-Elite.blp
 ```
 
 ## 🎮 Usage
