@@ -78,7 +78,7 @@ local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
 
 local FRAME_TEXTURES = {
 	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
-	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
+	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 	elite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite",
 	rare = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
