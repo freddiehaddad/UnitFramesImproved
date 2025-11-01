@@ -14,6 +14,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
 - **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and right-click to clear focus
 - **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
+- **Boss Frames** - Four compact player-style boss frames stacked vertically with secure click targeting and automatic show/hide
 
 ### 🎨 Visual Enhancements
 
@@ -70,10 +71,11 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Position Persistence** - Frame locations saved per character
 - **Combat Protection** - Frames auto-lock during combat to prevent taint
 - **Reset Options** - Restore default positions individually or all at once
+- **Group Anchors** - Boss frames share a single anchor so the full stack moves together
 - **Slash Commands**:
   - `/ufi unlock` - Enable frame repositioning
   - `/ufi lock` - Lock frames and save positions
-  - `/ufi reset [frame]` - Reset to defaults (player/target/focus/all)
+  - `/ufi reset [frame]` - Reset to defaults (player/target/focus/boss/all)
   - `/ufi help` - Display all commands
 
 ## 📦 Installation
@@ -114,6 +116,7 @@ UnitFramesImproved/
 - **Target frame** shows when you have a target
 - **Focus frame** appears when you set a focus target
 - **Target of Target** displays when your target has a target (according to the Interface Options toggle/mode)
+- **Boss frames** appear automatically during encounters and remain fully clickable for targeting
 
 ### Slash Commands
 
@@ -132,6 +135,7 @@ Type `/ufi help` in-game to see all available commands:
   - `/ufi reset player` - Reset only the player frame
   - `/ufi reset target` - Reset only the target frame
   - `/ufi reset focus` - Reset only the focus frame
+  - `/ufi reset boss` - Reset the boss frame anchor
   - `/ufi reset` - Reset all frames to defaults
   
 - **`/ufi help`** - Display command help

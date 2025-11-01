@@ -84,6 +84,31 @@ local FRAME_TEXTURES = {
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }
 
+local MAX_BOSS_FRAMES = 4
+local bossFrames = {}
+local bossFramesByUnit = {}
+local UpdateBossFrame
+local UpdateAllBossFrames
+
+local function IsBossUnit(unit)
+	return unit ~= nil and bossFramesByUnit[unit] ~= nil
+end
+
+-- Format health/power text based on interface options for consistency
+local function FormatStatusText(current, max)
+	local statusTextPercentage = GetCVar("statusTextPercentage")
+
+	if statusTextPercentage == "1" then
+		local percent = 0
+		if max > 0 then
+			percent = math.floor((current / max) * 100)
+		end
+		return percent .. "%"
+	end
+
+	return AbbreviateNumber(current) .. " / " .. AbbreviateNumber(max)
+end
+
 local SELF_BUFF_EXCLUSIONS = {
 	[72221] = true, -- Luck of the Draw
 	[91769] = true, -- Keeper's Scroll: Steadfast
@@ -463,6 +488,12 @@ local defaultPositions = {
 		x = 250,
 		y = -250,
 	},
+	UFI_BossFrameAnchor = {
+		point = "TOPRIGHT",
+		relativePoint = "TOPRIGHT",
+		x = -80,
+		y = -180,
+	},
 }
 
 -- Initialize saved variables
@@ -613,7 +644,11 @@ local function CreateOverlay(frame, frameName)
 	overlay.label = overlay:CreateFontString(nil, "OVERLAY")
 	overlay.label:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
 	overlay.label:SetPoint("CENTER")
-	overlay.label:SetText(frameName:gsub("UFI_", ""))
+	local displayName = frameName:gsub("UFI_", "")
+	if frameName == "UFI_BossFrameAnchor" then
+		displayName = "BossFrames"
+	end
+	overlay.label:SetText(displayName)
 
 	-- Store frame reference
 	overlay.secureFrame = frame
@@ -814,7 +849,25 @@ SlashCmdList["UFI"] = function(msg)
 		LockFrames()
 	elseif cmd == "reset" then
 		if arg and arg ~= "" then
-			local frameName = "UFI_" .. arg:sub(1, 1):upper() .. arg:sub(2):lower() .. "Frame"
+			local normalized = arg:lower()
+			local frameAliases = {
+				player = "UFI_PlayerFrame",
+				target = "UFI_TargetFrame",
+				focus = "UFI_FocusFrame",
+				tot = "UFI_TargetOfTargetFrame",
+				targetoftarget = "UFI_TargetOfTargetFrame",
+				boss = "UFI_BossFrameAnchor",
+				bosses = "UFI_BossFrameAnchor",
+				bossframe = "UFI_BossFrameAnchor",
+				bossframes = "UFI_BossFrameAnchor",
+				bossanchor = "UFI_BossFrameAnchor",
+			}
+
+			local frameName = frameAliases[normalized]
+			if not frameName then
+				frameName = "UFI_" .. normalized:sub(1, 1):upper() .. normalized:sub(2) .. "Frame"
+			end
+
 			ResetFramePosition(frameName)
 		else
 			-- Reset all frames
@@ -829,7 +882,7 @@ SlashCmdList["UFI"] = function(msg)
 		Print("  |cffffcc00/ufi lock|r - Lock frames and save positions")
 		Print("  |cffffcc00/ufi reset [frame]|r - Reset frame(s) to default position")
 		Print(
-			"    Examples: |cff888888/ufi reset player|r, |cff888888/ufi reset target|r, |cff888888/ufi reset|r (resets all)"
+			"    Examples: |cff888888/ufi reset player|r, |cff888888/ufi reset boss|r, |cff888888/ufi reset|r (resets all)"
 		)
 		Print("  |cffffcc00/ufi help|r - Show this help message")
 	else
@@ -1790,28 +1843,312 @@ local function CreateTargetOfTargetFrame()
 end
 
 -------------------------------------------------------------------------------
--- PLAYER FRAME UPDATE FUNCTIONS
+-- BOSS FRAME CREATION
 -------------------------------------------------------------------------------
 
--- Helper function to format health/power text based on interface options
-local function FormatStatusText(current, max)
-	-- Check if "Display Percentages" is checked in Interface Options > Status Text
-	-- The CVar is "statusTextPercentage" and is "1" when checked, "0" when unchecked
-	local statusTextPercentage = GetCVar("statusTextPercentage")
+local function ClearBossFrame(frame)
+	if not frame then
+		return
+	end
 
-	-- Check if percentages are enabled
-	if statusTextPercentage == "1" then
-		-- Show percentage
-		local percent = 0
-		if max > 0 then
-			percent = math.floor((current / max) * 100)
-		end
-		return percent .. "%"
+	frame.nameText:SetText("")
+	frame.levelText:SetText("")
+	frame.healthText:SetText("")
+	frame.powerText:SetText("")
+	frame.healthBar:SetMinMaxValues(0, 1)
+	frame.healthBar:SetValue(0)
+	frame.powerBar:SetMinMaxValues(0, 1)
+	frame.powerBar:SetValue(0)
+	frame.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	frame.portrait:SetTexture(nil)
+end
+
+local function UpdateBossHealth(unit)
+	local frame = bossFramesByUnit[unit]
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossFrame(frame)
+		return
+	end
+
+	local health = UnitHealth(unit)
+	local maxHealth = UnitHealthMax(unit)
+	if maxHealth == 0 then
+		maxHealth = 1
+	end
+
+	frame.healthBar:SetMinMaxValues(0, maxHealth)
+	frame.healthBar:SetValue(health)
+
+	local r, g, b = GetUnitColor(unit)
+	frame.healthBar:SetStatusBarColor(r, g, b)
+	frame.healthText:SetText(FormatStatusText(health, maxHealth))
+end
+
+local function UpdateBossPower(unit)
+	local frame = bossFramesByUnit[unit]
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossFrame(frame)
+		return
+	end
+
+	local power = UnitPower(unit)
+	local maxPower = UnitPowerMax(unit)
+
+	if maxPower == 0 then
+		frame.powerBar:Hide()
+		frame.powerText:Hide()
+		return
+	end
+
+	frame.powerBar:Show()
+	frame.powerText:Show()
+
+	frame.powerBar:SetMinMaxValues(0, maxPower)
+	frame.powerBar:SetValue(power)
+	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+
+	local powerType = UnitPowerType(unit)
+	local info = PowerBarColor[powerType]
+	if info then
+		frame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
+	end
+	frame.powerText:SetText(FormatStatusText(power, maxPower))
+end
+
+local function UpdateBossPortrait(unit)
+	local frame = bossFramesByUnit[unit]
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossFrame(frame)
+		return
+	end
+
+	SetPortraitTexture(frame.portrait, unit)
+end
+
+local function UpdateBossName(unit)
+	local frame = bossFramesByUnit[unit]
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossFrame(frame)
+		return
+	end
+
+	frame.nameText:SetText(UnitName(unit) or "")
+end
+
+local function UpdateBossLevel(unit)
+	local frame = bossFramesByUnit[unit]
+	if not frame then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossFrame(frame)
+		return
+	end
+
+	local level = UnitLevel(unit)
+	if level == -1 then
+		frame.levelText:SetText("??")
+		frame.levelText:SetTextColor(1, 0, 0)
+		return
+	end
+
+	if level and level > 0 then
+		frame.levelText:SetText(level)
 	else
-		-- Show numeric values
-		return AbbreviateNumber(current) .. " / " .. AbbreviateNumber(max)
+		frame.levelText:SetText("")
+	end
+
+	local playerLevel = UnitLevel("player") or 0
+	local levelDiff = (level or playerLevel) - playerLevel
+
+	if levelDiff >= 5 then
+		frame.levelText:SetTextColor(1, 0, 0)
+	elseif levelDiff >= 3 then
+		frame.levelText:SetTextColor(1, 0.5, 0)
+	elseif levelDiff >= -2 then
+		frame.levelText:SetTextColor(1, 1, 0)
+	elseif levelDiff >= -4 then
+		frame.levelText:SetTextColor(0, 1, 0)
+	else
+		frame.levelText:SetTextColor(0.5, 0.5, 0.5)
 	end
 end
+
+local function UpdateBossFrame(unit)
+	if not bossFramesByUnit[unit] then
+		return
+	end
+
+	UpdateBossHealth(unit)
+	UpdateBossPower(unit)
+	UpdateBossPortrait(unit)
+	UpdateBossName(unit)
+	UpdateBossLevel(unit)
+end
+
+local function UpdateAllBossFrames()
+	for index = 1, MAX_BOSS_FRAMES do
+		local unit = "boss" .. index
+		UpdateBossFrame(unit)
+	end
+end
+
+local function CreateBossFrames()
+	local anchor = CreateFrame("Frame", "UFI_BossFrameAnchor", UIParent)
+	anchor:SetSize(232, 100 * MAX_BOSS_FRAMES)
+	anchor:SetPoint(
+	defaultPositions.UFI_BossFrameAnchor.point,
+		UIParent,
+		defaultPositions.UFI_BossFrameAnchor.relativePoint,
+		defaultPositions.UFI_BossFrameAnchor.x,
+		defaultPositions.UFI_BossFrameAnchor.y
+	)
+	anchor:SetFrameStrata("LOW")
+	anchor:SetFrameLevel(1)
+	anchor.frames = {}
+	UFI_BossFrameAnchor = anchor
+
+	for index = 1, MAX_BOSS_FRAMES do
+		local unit = "boss" .. index
+		local frame = CreateFrame("Button", "UFI_BossFrame" .. index, anchor, "SecureUnitButtonTemplate")
+		frame:SetSize(232, 100)
+		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * 95))
+		frame:SetFrameStrata("LOW")
+		frame:SetFrameLevel(5)
+		frame:SetScale(0.95)
+		frame.unit = unit
+		frame:EnableMouse(true)
+		frame:RegisterForClicks("AnyUp")
+
+		frame:SetAttribute("unit", unit)
+		frame:SetAttribute("type1", "target")
+		RegisterUnitWatch(frame)
+		frame:Hide()
+
+		local visual = CreateFrame("Frame", nil, frame)
+		visual:SetAllPoints(frame)
+		visual:SetFrameStrata("LOW")
+		visual:SetFrameLevel(frame:GetFrameLevel() + 15)
+		frame.visualLayer = visual
+
+		frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "TOPLEFT",
+			x = 97,
+			y = -20,
+		})
+
+		frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
+			point = "TOPLEFT",
+			relativeTo = frame,
+			relativePoint = "TOPLEFT",
+			x = 97,
+			y = -46,
+		})
+
+		frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true })
+
+		frame.portrait = CreatePortrait(visual, {
+			point = "CENTER",
+			relativeTo = frame,
+			relativePoint = "TOPLEFT",
+			x = 68,
+			y = -38,
+		})
+
+		frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
+		frame.portraitMask:SetBlendMode("BLEND")
+
+		frame.levelText = CreateFontString(visual, {
+			point = "CENTER",
+			relativeTo = frame,
+			relativePoint = "TOPLEFT",
+			x = 48,
+			y = -56,
+			size = 8,
+			flags = "OUTLINE",
+			drawLayer = 0,
+			color = { r = 1, g = 0.82, b = 0 },
+		})
+
+		frame.nameText = CreateFontString(frame.healthBar, {
+			point = "CENTER",
+			relativeTo = frame.healthBar,
+			relativePoint = "CENTER",
+			x = 0,
+			y = 6,
+			size = 7,
+			flags = "OUTLINE",
+			drawLayer = 7,
+		})
+
+		frame.healthText = CreateFontString(frame.healthBar, {
+			point = "CENTER",
+			relativeTo = frame.healthBar,
+			relativePoint = "CENTER",
+			x = 0,
+			y = -6,
+			size = 8,
+			flags = "OUTLINE",
+			drawLayer = 7,
+			color = { r = 1, g = 1, b = 1 },
+		})
+
+		frame.powerText = CreateFontString(frame.visualLayer or visual, {
+			point = "CENTER",
+			relativeTo = frame.powerBar,
+			relativePoint = "CENTER",
+			x = 0,
+			y = 1,
+			size = 7,
+			flags = "OUTLINE",
+			drawLayer = 7,
+			color = { r = 1, g = 1, b = 1 },
+		})
+
+		frame:SetScript("OnShow", function(self)
+			if self.unit and UnitExists(self.unit) then
+				UpdateBossFrame(self.unit)
+			else
+				ClearBossFrame(self)
+			end
+		end)
+
+		frame:SetScript("OnHide", function(self)
+			ClearBossFrame(self)
+		end)
+
+		ClearBossFrame(frame)
+
+		bossFrames[index] = frame
+		bossFramesByUnit[unit] = frame
+		anchor.frames[index] = frame
+	end
+
+	return anchor
+end
+
+-------------------------------------------------------------------------------
+-- PLAYER FRAME UPDATE FUNCTIONS
+-------------------------------------------------------------------------------
 
 local function UpdatePlayerHealth()
 	if not UFI_PlayerFrame then
@@ -2625,6 +2962,10 @@ eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTIBLE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
+eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")
+eventFrame:RegisterEvent("UNIT_TARGETABLE_CHANGED")
+eventFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
@@ -2638,6 +2979,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UFI_TargetFrame = CreateTargetFrame()
 		UFI_FocusFrame = CreateFocusFrame()
 		UFI_TargetOfTargetFrame = CreateTargetOfTargetFrame()
+		UFI_BossFrameAnchor = CreateBossFrames()
 
 		-- Hide default Blizzard frames
 		PlayerFrame:UnregisterAllEvents()
@@ -2652,6 +2994,21 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		FocusFrame:Hide()
 		FocusFrame:SetAlpha(0)
 
+		for index = 1, MAX_BOSS_FRAMES do
+			local defaultBossFrame = _G["Boss" .. index .. "TargetFrame"]
+			if defaultBossFrame then
+				defaultBossFrame:UnregisterAllEvents()
+				defaultBossFrame:Hide()
+				defaultBossFrame:SetAlpha(0)
+			end
+		end
+
+		if BossTargetFrameContainer then
+			BossTargetFrameContainer:UnregisterAllEvents()
+			BossTargetFrameContainer:Hide()
+			BossTargetFrameContainer:SetAlpha(0)
+		end
+
 		-- Also hide target of target frame if it exists
 		if TargetFrameToT then
 			TargetFrameToT:UnregisterAllEvents()
@@ -2663,11 +3020,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		ApplyPosition("UFI_PlayerFrame")
 		ApplyPosition("UFI_TargetFrame")
 		ApplyPosition("UFI_FocusFrame")
+		ApplyPosition("UFI_BossFrameAnchor")
 
 		-- Create overlays for movable frames AFTER positioning
 		CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
 		CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
 		CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
+		if UFI_BossFrameAnchor then
+			CreateOverlay(UFI_BossFrameAnchor, "UFI_BossFrameAnchor")
+		end
 
 		-- Hook into SetCVar to detect changes from Interface Options
 		-- The Interface Options UI uses the old SetCVar() function which doesn't
@@ -2686,6 +3047,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 					UpdateFocusHealth()
 					UpdateFocusPower()
 				end
+				UpdateAllBossFrames()
 			elseif name == "showTargetOfTarget" or name == "targetOfTargetMode" then
 				UpdateTargetOfTarget()
 			end
@@ -2713,6 +3075,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		if UnitExists("focus") then
 			UpdateFocusFrame()
 		end
+
+		UpdateAllBossFrames()
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		UpdateTargetHealth()
 		UpdateTargetPower()
@@ -2725,6 +3089,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		RefreshCastBar("target")
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		UpdateTargetOfTarget()
+		UpdateAllBossFrames()
 	elseif event == "PLAYER_FOCUS_CHANGED" then
 		UpdateFocusFrame()
 		RefreshCastBar("focus")
@@ -2736,6 +3101,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetHealth()
 		elseif unit == "focus" then
 			UpdateFocusHealth()
+		elseif IsBossUnit(unit) then
+			UpdateBossHealth(unit)
 		end
 	elseif event == "UNIT_MAXHEALTH" then
 		local unit = ...
@@ -2745,6 +3112,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetHealth()
 		elseif unit == "focus" then
 			UpdateFocusHealth()
+		elseif IsBossUnit(unit) then
+			UpdateBossHealth(unit)
 		end
 	elseif
 		event == "UNIT_POWER_FREQUENT"
@@ -2762,6 +3131,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetPower()
 		elseif unit == "focus" then
 			UpdateFocusPower()
+		elseif IsBossUnit(unit) then
+			UpdateBossPower(unit)
 		end
 
 		if UnitIsUnit(unit, "targettarget") then
@@ -2782,6 +3153,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetPower()
 		elseif unit == "focus" then
 			UpdateFocusPower()
+		elseif IsBossUnit(unit) then
+			UpdateBossPower(unit)
 		end
 
 		if UnitIsUnit(unit, "targettarget") then
@@ -2795,6 +3168,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetPortrait()
 		elseif unit == "focus" then
 			UpdateFocusPortrait()
+		elseif IsBossUnit(unit) then
+			UpdateBossPortrait(unit)
 		end
 	elseif event == "UNIT_NAME_UPDATE" or event == "UNIT_LEVEL" then
 		local unit = ...
@@ -2812,6 +3187,23 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		elseif unit == "targettarget" then
 			UpdateTargetOfTargetName()
 			UpdateTargetOfTargetLevel()
+		elseif IsBossUnit(unit) then
+			UpdateBossFrame(unit)
+		end
+	elseif event == "UNIT_DISPLAYPOWER" then
+		local unit = ...
+		if unit == "player" then
+			UpdatePlayerPower()
+		elseif unit == "target" then
+			UpdateTargetPower()
+		elseif unit == "focus" then
+			UpdateFocusPower()
+		elseif IsBossUnit(unit) then
+			UpdateBossPower(unit)
+		end
+
+		if UnitIsUnit(unit, "targettarget") then
+			UpdateTargetOfTargetPower()
 		end
 	elseif event == "UNIT_AURA" then
 		local unit = ...
@@ -2827,6 +3219,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		if unit == "target" then
 			UpdateTargetOfTarget()
 		end
+	elseif event == "UNIT_TARGETABLE_CHANGED" then
+		local unit = ...
+		if IsBossUnit(unit) then
+			UpdateBossFrame(unit)
+		end
+	elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" or event == "ENCOUNTER_END" then
+		UpdateAllBossFrames()
 	elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
 		UpdateTargetOfTarget()
 	elseif event == "PLAYER_UPDATE_RESTING" then
@@ -2881,6 +3280,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- Combat ended
 		OnCombatEnd()
 		UpdateTargetOfTarget()
+		UpdateAllBossFrames()
 	end
 end)
 
