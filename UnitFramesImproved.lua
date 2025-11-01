@@ -1782,9 +1782,9 @@ local function CreateTargetOfTargetFrame()
 	-- Set unit for secure click handling
 	frame:SetAttribute("unit", "targettarget")
 	frame:SetAttribute("type1", "target") -- Left click = target the unit
+	RegisterUnitWatch(frame)
 
-	-- Use RegisterStateDriver for secure show/hide based on targettarget existence
-	RegisterStateDriver(frame, "visibility", "[target=targettarget,exists] show; hide")
+	frame:Hide()
 
 	return frame
 end
@@ -2039,6 +2039,47 @@ end
 -- TARGET OF TARGET FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
 
+local function ShouldShowTargetOfTarget()
+	if TargetFrame_ShouldShowTargetOfTarget and TargetFrame then
+		local ok, result = pcall(TargetFrame_ShouldShowTargetOfTarget, TargetFrame)
+		if ok then
+			return result
+		end
+	end
+
+	if not GetCVarBool("showTargetOfTarget") then
+		return false
+	end
+
+	local mode = tonumber(GetCVar("targetOfTargetMode") or "0") or 0
+	local raidMembers = GetNumRaidMembers() or 0
+	local partyMembers = GetNumPartyMembers() or 0
+	local inRaid = raidMembers > 0
+	local inParty = (not inRaid) and partyMembers > 0
+	local isSolo = (not inRaid) and not inParty
+
+	if mode == 1 then -- Raid
+		return inRaid
+	elseif mode == 2 then -- Party
+		return inParty
+	elseif mode == 3 then -- Solo
+		return isSolo
+	elseif mode == 4 then -- Raid & Party
+		return not isSolo
+	end
+
+	return true -- Treat 0 or any unknown value as Always
+end
+
+local function ApplyTargetOfTargetVisibility(shouldShow)
+	if not UFI_TargetOfTargetFrame then
+		return
+	end
+
+	UFI_TargetOfTargetFrame.desiredVisibility = shouldShow
+	UFI_TargetOfTargetFrame:SetAlpha(shouldShow and 1 or 0)
+end
+
 local function UpdateTargetOfTargetHealth()
 	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
 		return
@@ -2125,13 +2166,22 @@ local function UpdateTargetOfTarget()
 		return
 	end
 
-	if UnitExists("targettarget") then
-		UpdateTargetOfTargetHealth()
-		UpdateTargetOfTargetPower()
-		UpdateTargetOfTargetPortrait()
-		UpdateTargetOfTargetName()
-		UpdateTargetOfTargetLevel()
+	if not UnitExists("target") or not UnitExists("targettarget") then
+		ApplyTargetOfTargetVisibility(false)
+		return
 	end
+
+	if not ShouldShowTargetOfTarget() then
+		ApplyTargetOfTargetVisibility(false)
+		return
+	end
+
+	UpdateTargetOfTargetHealth()
+	UpdateTargetOfTargetPower()
+	UpdateTargetOfTargetPortrait()
+	UpdateTargetOfTargetName()
+	UpdateTargetOfTargetLevel()
+	ApplyTargetOfTargetVisibility(true)
 end
 
 -------------------------------------------------------------------------------
@@ -2539,6 +2589,7 @@ end
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_LOGOUT")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("UNIT_HEALTH")
@@ -2574,6 +2625,8 @@ eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTIBLE")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
+eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
+eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
 	if event == "PLAYER_LOGIN" then
@@ -2633,6 +2686,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 					UpdateFocusHealth()
 					UpdateFocusPower()
 				end
+			elseif name == "showTargetOfTarget" or name == "targetOfTargetMode" then
+				UpdateTargetOfTarget()
 			end
 		end)
 
@@ -2652,6 +2707,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdatePlayerLevel()
 		UpdatePlayerAuras()
 
+		UpdateTargetOfTarget()
+
 		-- Update focus frame if focus exists
 		if UnitExists("focus") then
 			UpdateFocusFrame()
@@ -2666,6 +2723,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		UpdateTargetAuras()
 		UpdateTargetOfTarget()
 		RefreshCastBar("target")
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		UpdateTargetOfTarget()
 	elseif event == "PLAYER_FOCUS_CHANGED" then
 		UpdateFocusFrame()
 		RefreshCastBar("focus")
@@ -2768,6 +2827,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		if unit == "target" then
 			UpdateTargetOfTarget()
 		end
+	elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
+		UpdateTargetOfTarget()
 	elseif event == "PLAYER_UPDATE_RESTING" then
 		UpdatePlayerLevel()
 
@@ -2819,6 +2880,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		-- Combat ended
 		OnCombatEnd()
+		UpdateTargetOfTarget()
 	end
 end)
 

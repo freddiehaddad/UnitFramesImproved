@@ -13,7 +13,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Player Frame** - Enhanced health/power display with resting indicator, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
 - **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and right-click to clear focus
-- **Target of Target** - See what your target is targeting at a glance
+- **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
 
 ### 🎨 Visual Enhancements
 
@@ -26,6 +26,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
   - Shows percentages (e.g., "75%") or numeric values (e.g., "15.2k / 20.3k")
   - Updates instantly when toggled in Interface Options → Status Text
   - No reload required - changes apply immediately
+- **Target-of-Target Integration** - Respects the Interface Options checkbox and dropdown (Raid, Party, Solo, Raid & Party, Always) with instant updates
 
 ### ⚔️ Combat Features
 
@@ -112,7 +113,7 @@ UnitFramesImproved/
 - **Player frame** is always visible
 - **Target frame** shows when you have a target
 - **Focus frame** appears when you set a focus target
-- **Target of Target** displays when your target has a target
+- **Target of Target** displays when your target has a target (according to the Interface Options toggle/mode)
 
 ### Slash Commands
 
@@ -170,6 +171,16 @@ The addon respects WoW's native "Display Percentages" setting:
    - **Unchecked**: Shows numeric values (e.g., "15.2k / 20.3k")
 5. No `/reload` required - changes apply immediately to all frames
 
+### Target of Target Display
+
+The target-of-target frame mirrors Blizzard's Interface Options:
+
+1. Open Interface Options (Esc → Interface)
+2. Navigate to **Combat** and enable **"Show Target of Target"**
+3. Choose the desired visibility mode (Raid, Party, Solo, Raid & Party, Always)
+4. The custom frame updates instantly based on your selection—no reload needed
+5. Works seamlessly in and out of combat
+
 ### Difficulty Changes
 
 1. Right-click your player frame
@@ -187,6 +198,7 @@ The addon respects WoW's native "Display Percentages" setting:
 - Menu items filtered to avoid taint-causing operations
 - Combat detection prevents frame repositioning during encounters
 - **Secure hook integration** - Uses `hooksecurefunc` to detect CVar changes from Interface Options without polling
+- **Interface-aware visibility** - Mirrors Blizzard's target-of-target CVars to keep visibility in sync with the Combat options panel
 
 ### Saved Variables
 
