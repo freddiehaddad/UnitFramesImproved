@@ -14,7 +14,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
 - **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and right-click to clear focus
 - **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
-- **Boss Frames** - Four compact player-style boss frames stacked vertically with secure click targeting, integrated cast bars, and automatic show/hide
+- **Boss Frames** - Four compact player-style boss frames stacked vertically with secure click targeting, integrated cast bars, automatic show/hide, and artwork that adapts to elite/rare/world classifications
 
 ### 🎨 Visual Enhancements
 

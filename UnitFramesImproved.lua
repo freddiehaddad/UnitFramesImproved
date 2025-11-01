@@ -77,8 +77,9 @@ local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
 
 local FRAME_TEXTURES = {
-	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
+	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
+	focus = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-FocusTargetingFrame",
 	elite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite",
 	rare = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
@@ -86,6 +87,12 @@ local FRAME_TEXTURES = {
 
 local MAX_BOSS_FRAMES = 4
 local BOSS_FRAME_STRIDE = 120 -- vertical spacing per boss frame including cast bar clearance
+local BOSS_CLASSIFICATION_TEXTURES = {
+	worldboss = FRAME_TEXTURES.elite,
+	elite = FRAME_TEXTURES.elite,
+	rare = FRAME_TEXTURES.rare,
+	rareelite = FRAME_TEXTURES.rareElite,
+}
 local bossFrames = {}
 local bossFramesByUnit = {}
 local UpdateBossFrame
@@ -93,6 +100,20 @@ local UpdateAllBossFrames
 
 local function IsBossUnit(unit)
 	return unit ~= nil and bossFramesByUnit[unit] ~= nil
+end
+
+local function ApplyBossTexture(frame, classification)
+	if not frame or not frame.texture or not frame.portraitMask then
+		return
+	end
+
+	local texturePath = BOSS_CLASSIFICATION_TEXTURES[classification] or FRAME_TEXTURES.default
+
+	if frame.currentTexture ~= texturePath then
+		frame.texture:SetTexture(texturePath)
+		frame.portraitMask:SetTexture(texturePath)
+		frame.currentTexture = texturePath
+	end
 end
 
 -- Format health/power text based on interface options for consistency
@@ -1873,6 +1894,8 @@ local function ClearBossFrame(frame)
 		frame.castBar.state = CASTBAR_STATE.HIDDEN
 		frame.castBar.holdUntil = 0
 	end
+
+	frame.currentTexture = nil
 end
 
 local function UpdateBossHealth(unit)
@@ -2004,7 +2027,8 @@ local function UpdateBossLevel(unit)
 end
 
 local function UpdateBossFrame(unit)
-	if not bossFramesByUnit[unit] then
+	local frame = bossFramesByUnit[unit]
+	if not frame then
 		return
 	end
 
@@ -2013,6 +2037,10 @@ local function UpdateBossFrame(unit)
 	UpdateBossPortrait(unit)
 	UpdateBossName(unit)
 	UpdateBossLevel(unit)
+
+	if UnitExists(unit) then
+		ApplyBossTexture(frame, UnitClassification(unit))
+	end
 end
 
 local function UpdateAllBossFrames()
@@ -2064,7 +2092,7 @@ local function CreateBossFrames()
 			point = "TOPLEFT",
 			relativeTo = frame,
 			relativePoint = "TOPLEFT",
-			x = 97,
+			x = 27,
 			y = -20,
 		})
 
@@ -2072,28 +2100,29 @@ local function CreateBossFrames()
 			point = "TOPLEFT",
 			relativeTo = frame,
 			relativePoint = "TOPLEFT",
-			x = 97,
+			x = 27,
 			y = -46,
 		})
 
-		frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true })
+		frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.default)
 
 		frame.portrait = CreatePortrait(visual, {
 			point = "CENTER",
 			relativeTo = frame,
 			relativePoint = "TOPLEFT",
-			x = 68,
+			x = 164,
 			y = -38,
 		})
 
-		frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
+		frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.default, { subLevel = 5 })
 		frame.portraitMask:SetBlendMode("BLEND")
+		frame.currentTexture = FRAME_TEXTURES.default
 
 		frame.levelText = CreateFontString(visual, {
 			point = "CENTER",
 			relativeTo = frame,
 			relativePoint = "TOPLEFT",
-			x = 48,
+			x = 184,
 			y = -56,
 			size = 8,
 			flags = "OUTLINE",
@@ -2144,7 +2173,7 @@ local function CreateBossFrames()
 				relativeTo = frame,
 				relativePoint = "BOTTOM",
 				x = 0,
-				y = -14,
+				y = -4,
 			},
 		})
 		frame.castBar.icon:SetPoint("RIGHT", frame.castBar, "LEFT", -4, 0)
@@ -2972,6 +3001,7 @@ eventFrame:RegisterEvent("UNIT_MAXPOWER")
 eventFrame:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
 eventFrame:RegisterEvent("UNIT_LEVEL")
+eventFrame:RegisterEvent("UNIT_CLASSIFICATION_CHANGED")
 eventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
@@ -3213,6 +3243,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetOfTargetName()
 			UpdateTargetOfTargetLevel()
 		elseif IsBossUnit(unit) then
+			UpdateBossFrame(unit)
+		end
+	elseif event == "UNIT_CLASSIFICATION_CHANGED" then
+		local unit = ...
+		if IsBossUnit(unit) then
 			UpdateBossFrame(unit)
 		end
 	elseif event == "UNIT_DISPLAYPOWER" then
