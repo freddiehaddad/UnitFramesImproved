@@ -85,6 +85,7 @@ local FRAME_TEXTURES = {
 }
 
 local MAX_BOSS_FRAMES = 4
+local BOSS_FRAME_STRIDE = 120 -- vertical spacing per boss frame including cast bar clearance
 local bossFrames = {}
 local bossFramesByUnit = {}
 local UpdateBossFrame
@@ -1861,6 +1862,17 @@ local function ClearBossFrame(frame)
 	frame.powerBar:SetValue(0)
 	frame.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	frame.portrait:SetTexture(nil)
+
+	if frame.castBar then
+		frame.castBar:Hide()
+		frame.castBar:SetAlpha(1)
+		frame.castBar:SetValue(0)
+		frame.castBar.text:SetText("")
+		frame.castBar.time:SetText("")
+		frame.castBar.icon:SetTexture(nil)
+		frame.castBar.state = CASTBAR_STATE.HIDDEN
+		frame.castBar.holdUntil = 0
+	end
 end
 
 local function UpdateBossHealth(unit)
@@ -2012,9 +2024,9 @@ end
 
 local function CreateBossFrames()
 	local anchor = CreateFrame("Frame", "UFI_BossFrameAnchor", UIParent)
-	anchor:SetSize(232, 100 * MAX_BOSS_FRAMES)
+	anchor:SetSize(232, (BOSS_FRAME_STRIDE * MAX_BOSS_FRAMES) + 30)
 	anchor:SetPoint(
-	defaultPositions.UFI_BossFrameAnchor.point,
+		defaultPositions.UFI_BossFrameAnchor.point,
 		UIParent,
 		defaultPositions.UFI_BossFrameAnchor.relativePoint,
 		defaultPositions.UFI_BossFrameAnchor.x,
@@ -2029,7 +2041,7 @@ local function CreateBossFrames()
 		local unit = "boss" .. index
 		local frame = CreateFrame("Button", "UFI_BossFrame" .. index, anchor, "SecureUnitButtonTemplate")
 		frame:SetSize(232, 100)
-		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * 95))
+		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * BOSS_FRAME_STRIDE))
 		frame:SetFrameStrata("LOW")
 		frame:SetFrameLevel(5)
 		frame:SetScale(0.95)
@@ -2123,6 +2135,19 @@ local function CreateBossFrames()
 			drawLayer = 7,
 			color = { r = 1, g = 1, b = 1 },
 		})
+
+		frame.castBar = CreateCastBar(frame, unit, {
+			width = 148,
+			height = 12,
+			anchor = {
+				point = "TOP",
+				relativeTo = frame,
+				relativePoint = "BOTTOM",
+				x = 0,
+				y = -14,
+			},
+		})
+		frame.castBar.icon:SetPoint("RIGHT", frame.castBar, "LEFT", -4, 0)
 
 		frame:SetScript("OnShow", function(self)
 			if self.unit and UnitExists(self.unit) then
