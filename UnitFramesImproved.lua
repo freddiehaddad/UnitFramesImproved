@@ -164,17 +164,20 @@ local function CreateStatusBar(parent, size, anchor)
 	local offsetY = (anchor and anchor.y) or 0
 	bar:SetPoint(point, relativeTo, relativePoint, offsetX, offsetY)
 	bar:SetStatusBarTexture(STATUSBAR_TEXTURE)
-	bar:GetStatusBarTexture():SetHorizTile(false)
-	bar:GetStatusBarTexture():SetVertTile(false)
-	bar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	local fill = bar:GetStatusBarTexture()
+	fill:SetHorizTile(false)
+	fill:SetVertTile(false)
+	fill:SetDrawLayer("ARTWORK", 0)
+	fill:SetVertexColor(1, 1, 1, 1)
 	bar:SetMinMaxValues(0, 100)
 	bar:SetValue(100)
 	local parentLevel = parent:GetFrameLevel() or 0
 	bar:SetFrameLevel(math.max(parentLevel - 1, 0))
 
 	local bg = bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.35)
+	bg:SetTexture(0, 0, 0, 0.5)
 	bg:SetAllPoints(bar)
+	bg:SetDrawLayer("BACKGROUND", -1)
 	bar.bg = bg
 
 	if bar.SetBackdrop then
@@ -1783,7 +1786,7 @@ local function CreateFocusFrame()
 		ToggleDropDownMenu(1, nil, focusDropdown, self, 110, 45)
 	end)
 
-	RegisterStateDriver(frame, "visibility", "[target=focus,exists] show; hide")
+	RegisterStateDriver(frame, "visibility", "[target=focus,exists,nodead] show; hide")
 
 	return frame
 end
@@ -1956,7 +1959,7 @@ local function UpdateBossPower(unit)
 
 	frame.powerBar:SetMinMaxValues(0, maxPower)
 	frame.powerBar:SetValue(power)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
 
 	local powerType = UnitPowerType(unit)
 	local info = PowerBarColor[powerType]
@@ -2274,7 +2277,7 @@ local function UpdatePlayerPower()
 	UFI_PlayerFrame.powerBar:SetValue(power)
 
 	-- Ensure texture stays in BACKGROUND layer
-	UFI_PlayerFrame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	UFI_PlayerFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
 
 	-- Set color based on power type
 	local info = PowerBarColor[powerType]
@@ -2384,7 +2387,7 @@ local function UpdateTargetPower()
 	UFI_TargetFrame.powerBar:SetValue(power)
 
 	-- Ensure texture stays in BACKGROUND layer
-	UFI_TargetFrame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	UFI_TargetFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
 
 	-- Set color based on power type
 	local info = PowerBarColor[powerType]
@@ -2633,6 +2636,18 @@ local function UpdateFocusHealth()
 	local health = UnitHealth("focus")
 	local maxHealth = UnitHealthMax("focus")
 
+	if maxHealth == 0 then
+		maxHealth = 1
+	end
+
+	local isDead = UnitIsDead("focus")
+	local isGhost = UnitIsGhost("focus")
+	local isDisconnected = not UnitIsConnected("focus")
+
+	if isDead or isGhost or isDisconnected then
+		health = 0
+	end
+
 	UFI_FocusFrame.healthBar:SetMinMaxValues(0, maxHealth)
 	UFI_FocusFrame.healthBar:SetValue(health)
 
@@ -2640,19 +2655,21 @@ local function UpdateFocusHealth()
 	local r, g, b = GetUnitColor("focus")
 	UFI_FocusFrame.healthBar:SetStatusBarColor(r, g, b)
 
-	-- Check if dead
-	if UnitIsDead("focus") then
+	if isDead then
 		UFI_FocusFrame.deadText:SetText("Dead")
 		UFI_FocusFrame.deadText:Show()
 		UFI_FocusFrame.healthText:Hide()
-	elseif UnitIsGhost("focus") then
+	elseif isGhost then
 		UFI_FocusFrame.deadText:SetText("Ghost")
+		UFI_FocusFrame.deadText:Show()
+		UFI_FocusFrame.healthText:Hide()
+	elseif isDisconnected then
+		UFI_FocusFrame.deadText:SetText("Offline")
 		UFI_FocusFrame.deadText:Show()
 		UFI_FocusFrame.healthText:Hide()
 	else
 		UFI_FocusFrame.deadText:Hide()
 		UFI_FocusFrame.healthText:Show()
-		-- Set text
 		UFI_FocusFrame.healthText:SetText(FormatStatusText(health, maxHealth))
 	end
 end
@@ -2680,7 +2697,7 @@ local function UpdateFocusPower()
 	UFI_FocusFrame.powerBar:SetValue(power)
 
 	-- Ensure texture stays in BACKGROUND layer
-	UFI_FocusFrame.powerBar:GetStatusBarTexture():SetDrawLayer("BACKGROUND", -8)
+	UFI_FocusFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
 
 	-- Set color based on power type
 	local info = PowerBarColor[powerType]
