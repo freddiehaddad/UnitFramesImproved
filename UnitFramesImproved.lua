@@ -2545,10 +2545,16 @@ eventFrame:RegisterEvent("UNIT_HEALTH")
 eventFrame:RegisterEvent("UNIT_MAXHEALTH")
 eventFrame:RegisterEvent("UNIT_POWER_FREQUENT")
 eventFrame:RegisterEvent("UNIT_POWER_UPDATE")
+eventFrame:RegisterEvent("UNIT_MANA")
 eventFrame:RegisterEvent("UNIT_RAGE")
 eventFrame:RegisterEvent("UNIT_ENERGY")
 eventFrame:RegisterEvent("UNIT_FOCUS")
 eventFrame:RegisterEvent("UNIT_RUNIC_POWER")
+eventFrame:RegisterEvent("UNIT_MAXMANA")
+eventFrame:RegisterEvent("UNIT_MAXRAGE")
+eventFrame:RegisterEvent("UNIT_MAXENERGY")
+eventFrame:RegisterEvent("UNIT_MAXFOCUS")
+eventFrame:RegisterEvent("UNIT_MAXRUNIC_POWER")
 eventFrame:RegisterEvent("UNIT_MAXPOWER")
 eventFrame:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
@@ -2684,6 +2690,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 	elseif
 		event == "UNIT_POWER_FREQUENT"
 		or event == "UNIT_POWER_UPDATE"
+		or event == "UNIT_MANA"
 		or event == "UNIT_RAGE"
 		or event == "UNIT_ENERGY"
 		or event == "UNIT_FOCUS"
@@ -2697,7 +2704,18 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		elseif unit == "focus" then
 			UpdateFocusPower()
 		end
-	elseif event == "UNIT_MAXPOWER" then
+
+		if UnitIsUnit(unit, "targettarget") then
+			UpdateTargetOfTargetPower()
+		end
+	elseif
+		event == "UNIT_MAXPOWER"
+		or event == "UNIT_MAXMANA"
+		or event == "UNIT_MAXRAGE"
+		or event == "UNIT_MAXENERGY"
+		or event == "UNIT_MAXFOCUS"
+		or event == "UNIT_MAXRUNIC_POWER"
+	then
 		local unit = ...
 		if unit == "player" then
 			UpdatePlayerPower()
@@ -2705,6 +2723,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			UpdateTargetPower()
 		elseif unit == "focus" then
 			UpdateFocusPower()
+		end
+
+		if UnitIsUnit(unit, "targettarget") then
+			UpdateTargetOfTargetPower()
 		end
 	elseif event == "UNIT_PORTRAIT_UPDATE" then
 		local unit = ...
