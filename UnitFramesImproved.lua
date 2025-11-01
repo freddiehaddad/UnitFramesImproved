@@ -846,6 +846,8 @@ local function OnCombatStart()
 		end
 		Print("|cffff8800Frame movement disabled during combat!|r")
 	end
+
+	UpdatePlayerLevel()
 end
 
 -- Handle combat end
@@ -862,6 +864,8 @@ local function OnCombatEnd()
 		end
 		Print("Frame movement re-enabled!")
 	end
+
+	UpdatePlayerLevel()
 end
 
 -- Slash command handler
@@ -2301,15 +2305,19 @@ local function UpdatePlayerLevel()
 		return
 	end
 
-	if IsResting() then
-		-- Show "zzz" when resting
-		UFI_PlayerFrame.levelText:SetText("zzz")
-		UFI_PlayerFrame.levelText:SetTextColor(1, 0.82, 0) -- Gold for rest
+	local frame = UFI_PlayerFrame
+	local level = UnitLevel("player")
+	local inCombat = UnitAffectingCombat("player")
+
+	if inCombat then
+		frame.levelText:SetText(level)
+		frame.levelText:SetTextColor(1, 0.25, 0.25) -- Red tint while in combat
+	elseif IsResting() then
+		frame.levelText:SetText("zzz")
+		frame.levelText:SetTextColor(1, 0.82, 0)
 	else
-		-- Show level number when not resting
-		local level = UnitLevel("player")
-		UFI_PlayerFrame.levelText:SetText(level)
-		UFI_PlayerFrame.levelText:SetTextColor(1, 0.82, 0) -- Gold for level
+		frame.levelText:SetText(level)
+		frame.levelText:SetTextColor(1, 0.82, 0)
 	end
 end
 
@@ -3193,6 +3201,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		end
 	elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
 		UpdatePlayerThreat()
+		UpdatePlayerLevel()
 	elseif event == "UNIT_HEALTH" then
 		local unit = ...
 		if unit == "player" then
