@@ -206,7 +206,11 @@ end
 
 local function CreateFontString(parent, fontOptions)
 	local fontString = parent:CreateFontString(nil, "OVERLAY")
-	fontString:SetFont(fontOptions.path or FONT_DEFAULT, fontOptions.size, fontOptions.flags or "OUTLINE")
+	local fontFlags = fontOptions.flags
+	if not fontFlags or fontFlags == "" then
+		fontFlags = "OUTLINE"
+	end
+	fontString:SetFont(fontOptions.path or FONT_DEFAULT, fontOptions.size, fontFlags)
 	local relativeTo = fontOptions.relativeTo or parent
 	local relativePoint = fontOptions.relativePoint or fontOptions.point
 	fontString:SetPoint(fontOptions.point, relativeTo, relativePoint, fontOptions.x or 0, fontOptions.y or 0)
@@ -1004,8 +1008,8 @@ local function CreatePlayerFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 7,
-		flags = "OUTLINE",
+		size = 8,
+		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
 	frame.nameText:SetText(UnitName("player"))
@@ -1017,7 +1021,7 @@ local function CreatePlayerFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = -6,
-		size = 8,
+		size = 7,
 		flags = "OUTLINE",
 		drawLayer = 7,
 		color = { r = 1, g = 1, b = 1 },
@@ -1032,7 +1036,7 @@ local function CreatePlayerFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 1,
-		size = 7,
+		size = 6,
 		flags = "OUTLINE",
 		drawLayer = 7,
 		color = { r = 1, g = 1, b = 1 },
@@ -1511,8 +1515,8 @@ local function CreateTargetFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 7,
-		flags = "OUTLINE",
+		size = 8,
+		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
 	frame.nameText:SetText("")
@@ -1523,7 +1527,7 @@ local function CreateTargetFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = -6,
-		size = 8,
+		size = 7,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
@@ -1536,7 +1540,7 @@ local function CreateTargetFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 1,
-		size = 7,
+		size = 6,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
@@ -1549,7 +1553,7 @@ local function CreateTargetFrame()
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = 0,
+		y = -5,
 		size = 12,
 		flags = "OUTLINE",
 		color = { r = 0.5, g = 0.5, b = 0.5 },
@@ -1686,8 +1690,8 @@ local function CreateFocusFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 7,
-		flags = "OUTLINE",
+		size = 8,
+		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
 	frame.nameText:SetText("")
@@ -1698,7 +1702,7 @@ local function CreateFocusFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = -6,
-		size = 8,
+		size = 7,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
@@ -1711,7 +1715,7 @@ local function CreateFocusFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 1,
-		size = 7,
+		size = 6,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
@@ -1724,7 +1728,7 @@ local function CreateFocusFrame()
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = 0,
+		y = -5,
 		size = 12,
 		flags = "OUTLINE",
 		color = { r = 0.5, g = 0.5, b = 0.5 },
@@ -1842,8 +1846,8 @@ local function CreateTargetOfTargetFrame()
 		relativePoint = "CENTER",
 		x = 0,
 		y = 0,
-		size = 9,
-		flags = "OUTLINE",
+		size = 10,
+		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
 	frame.nameText:SetText("")
@@ -1930,6 +1934,7 @@ local function UpdateBossHealth(unit)
 
 	local r, g, b = GetUnitColor(unit)
 	frame.healthBar:SetStatusBarColor(r, g, b)
+	frame.nameText:SetTextColor(r, g, b)
 	frame.healthText:SetText(FormatStatusText(health, maxHealth))
 end
 
@@ -1948,7 +1953,11 @@ local function UpdateBossPower(unit)
 	local maxPower = UnitPowerMax(unit)
 
 	if maxPower == 0 then
-		frame.powerBar:Hide()
+		frame.powerBar:Show()
+		frame.powerBar:SetMinMaxValues(0, 1)
+		frame.powerBar:SetValue(0)
+		frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
+		frame.powerText:SetText("")
 		frame.powerText:Hide()
 		return
 	end
@@ -2146,8 +2155,8 @@ local function CreateBossFrames()
 			relativePoint = "CENTER",
 			x = 0,
 			y = 6,
-			size = 7,
-			flags = "OUTLINE",
+			size = 8,
+			flags = "THICKOUTLINE",
 			drawLayer = 7,
 		})
 
@@ -2157,7 +2166,7 @@ local function CreateBossFrames()
 			relativePoint = "CENTER",
 			x = 0,
 			y = -6,
-			size = 8,
+			size = 7,
 			flags = "OUTLINE",
 			drawLayer = 7,
 			color = { r = 1, g = 1, b = 1 },
@@ -2169,7 +2178,7 @@ local function CreateBossFrames()
 			relativePoint = "CENTER",
 			x = 0,
 			y = 1,
-			size = 7,
+			size = 6,
 			flags = "OUTLINE",
 			drawLayer = 7,
 			color = { r = 1, g = 1, b = 1 },
@@ -2258,6 +2267,7 @@ local function UpdatePlayerHealth()
 	-- Set color
 	local r, g, b = GetUnitColor("player")
 	UFI_PlayerFrame.healthBar:SetStatusBarColor(r, g, b)
+	UFI_PlayerFrame.nameText:SetTextColor(r, g, b)
 
 	-- Set text
 	UFI_PlayerFrame.healthText:SetText(FormatStatusText(health, maxHealth))
@@ -2345,6 +2355,7 @@ local function UpdateTargetHealth()
 	-- Set color based on unit type and state
 	local r, g, b = GetUnitColor("target")
 	UFI_TargetFrame.healthBar:SetStatusBarColor(r, g, b)
+	UFI_TargetFrame.nameText:SetTextColor(r, g, b)
 
 	-- Check if dead
 	if UnitIsDead("target") then
@@ -2374,7 +2385,11 @@ local function UpdateTargetPower()
 
 	-- Hide power bar if target has no power
 	if maxPower == 0 then
-		UFI_TargetFrame.powerBar:Hide()
+		UFI_TargetFrame.powerBar:Show()
+		UFI_TargetFrame.powerBar:SetMinMaxValues(0, 1)
+		UFI_TargetFrame.powerBar:SetValue(0)
+		UFI_TargetFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
+		UFI_TargetFrame.powerText:SetText("")
 		UFI_TargetFrame.powerText:Hide()
 		return
 	end
@@ -2529,6 +2544,7 @@ local function UpdateTargetOfTargetHealth()
 	-- Set color
 	local r, g, b = GetUnitColor("targettarget")
 	UFI_TargetOfTargetFrame.healthBar:SetStatusBarColor(r, g, b)
+	UFI_TargetOfTargetFrame.nameText:SetTextColor(r, g, b)
 end
 
 local function UpdateTargetOfTargetPower()
@@ -2653,6 +2669,7 @@ local function UpdateFocusHealth()
 	-- Set color based on unit type and state
 	local r, g, b = GetUnitColor("focus")
 	UFI_FocusFrame.healthBar:SetStatusBarColor(r, g, b)
+	UFI_FocusFrame.nameText:SetTextColor(r, g, b)
 
 	if isDead then
 		UFI_FocusFrame.deadText:SetText("Dead")
@@ -2684,7 +2701,11 @@ local function UpdateFocusPower()
 
 	-- Hide power bar if focus has no power
 	if maxPower == 0 then
-		UFI_FocusFrame.powerBar:Hide()
+		UFI_FocusFrame.powerBar:Show()
+		UFI_FocusFrame.powerBar:SetMinMaxValues(0, 1)
+		UFI_FocusFrame.powerBar:SetValue(0)
+		UFI_FocusFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
+		UFI_FocusFrame.powerText:SetText("")
 		UFI_FocusFrame.powerText:Hide()
 		return
 	end
