@@ -71,6 +71,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Combat Protection** - Frames auto-lock during combat to prevent taint
 - **Reset Options** - Restore default positions individually or all at once
 - **Group Anchors** - Boss frames share a single anchor so the full stack moves together
+- **Target-of-Target Support** - The target-of-target frame now unlocks and resets with the same commands
 - **Slash Commands**:
   - `/ufi unlock` - Enable frame repositioning
   - `/ufi lock` - Lock frames and save positions
@@ -132,6 +133,7 @@ Type `/ufi help` in-game to see all available commands:
   - `/ufi reset player` - Reset only the player frame
   - `/ufi reset target` - Reset only the target frame
   - `/ufi reset focus` - Reset only the focus frame
+  - `/ufi reset targetoftarget` or `/ufi reset tot` - Reset the target-of-target frame
   - `/ufi reset boss` - Reset the boss frame anchor
   - `/ufi reset` - Reset all frames to defaults
   

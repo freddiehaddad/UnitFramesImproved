@@ -555,6 +555,13 @@ local defaultPositions = {
 		x = 250,
 		y = -4,
 	},
+	UFI_TargetOfTargetFrame = {
+		point = "TOP",
+		relativeTo = "UFI_TargetFrame",
+		relativePoint = "BOTTOM",
+		x = 100,
+		y = 80,
+	},
 	UFI_FocusFrame = {
 		point = "TOPLEFT",
 		relativePoint = "TOPLEFT",
@@ -617,7 +624,7 @@ local function CanRepositionFrames()
 end
 
 -- Save position for a frame
-local function SavePosition(frameName, point, relativePoint, x, y)
+local function SavePosition(frameName, point, relativePoint, x, y, relativeTo)
 	if not UnitFramesImprovedDB.positions then
 		UnitFramesImprovedDB.positions = {}
 	end
@@ -627,6 +634,7 @@ local function SavePosition(frameName, point, relativePoint, x, y)
 		relativePoint = relativePoint,
 		x = x,
 		y = y,
+		relativeTo = relativeTo,
 	}
 end
 
@@ -646,16 +654,21 @@ local function ApplyPosition(frameName)
 		end
 	end
 
+	local relativeFrame = UIParent
+	if pos.relativeTo then
+		relativeFrame = _G[pos.relativeTo] or UIParent
+	end
+
 	if CanRepositionFrames() then
 		frame:ClearAllPoints()
-		frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
+		frame:SetPoint(pos.point, relativeFrame, pos.relativePoint, pos.x, pos.y)
 		pendingPositions[frameName] = nil
 
 		-- Sync overlay position to match frame
 		local overlay = frameOverlays[frameName]
 		if overlay then
 			overlay:ClearAllPoints()
-			overlay:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
+			overlay:SetPoint(pos.point, relativeFrame, pos.relativePoint, pos.x, pos.y)
 		end
 	else
 		-- Save for later
@@ -686,7 +699,7 @@ local function ResetFramePosition(frameName)
 		return
 	end
 
-	SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y)
+	SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y, pos.relativeTo)
 	ApplyPosition(frameName)
 	Print("Reset " .. frameName .. " to default position")
 end
@@ -758,15 +771,25 @@ local function CreateOverlay(frame, frameName)
 			self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
 
 			-- Get new position from overlay
-			local point, _, relativePoint, x, y = self:GetPoint()
+			local point, relativeToFrame, relativePoint, x, y = self:GetPoint()
+			local relativeToName
+			if relativeToFrame then
+				relativeToName = relativeToFrame:GetName()
+				if not relativeToName and relativeToFrame == UIParent then
+					relativeToName = "UIParent"
+				end
+			end
 
-			-- Save position
-			SavePosition(frameName, point, relativePoint, x, y)
+			SavePosition(frameName, point, relativePoint, x, y, relativeToName)
 
 			-- Try to apply to actual frame
 			if CanRepositionFrames() then
 				frame:ClearAllPoints()
-				frame:SetPoint(point, UIParent, relativePoint, x, y)
+				local relativeFrame = relativeToFrame or UIParent
+				if relativeToName and not relativeToFrame then
+					relativeFrame = _G[relativeToName] or UIParent
+				end
+				frame:SetPoint(point, relativeFrame, relativePoint, x, y)
 				Print(frameName:gsub("UFI_", "") .. " position updated!")
 			else
 				pendingPositions[frameName] = true
@@ -789,15 +812,25 @@ local function CreateOverlay(frame, frameName)
 				self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
 
 				-- Get new position from overlay
-				local point, _, relativePoint, x, y = self:GetPoint()
+				local point, relativeToFrame, relativePoint, x, y = self:GetPoint()
+				local relativeToName
+				if relativeToFrame then
+					relativeToName = relativeToFrame:GetName()
+					if not relativeToName and relativeToFrame == UIParent then
+						relativeToName = "UIParent"
+					end
+				end
 
-				-- Save position
-				SavePosition(frameName, point, relativePoint, x, y)
+				SavePosition(frameName, point, relativePoint, x, y, relativeToName)
 
 				-- Try to apply to actual frame
 				if CanRepositionFrames() then
 					frame:ClearAllPoints()
-					frame:SetPoint(point, UIParent, relativePoint, x, y)
+					local relativeFrame = relativeToFrame or UIParent
+					if relativeToName and not relativeToFrame then
+						relativeFrame = _G[relativeToName] or UIParent
+					end
+					frame:SetPoint(point, relativeFrame, relativePoint, x, y)
 					Print(frameName:gsub("UFI_", "") .. " position updated!")
 				else
 					pendingPositions[frameName] = true
@@ -3192,12 +3225,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- Apply saved positions FIRST
 		ApplyPosition("UFI_PlayerFrame")
 		ApplyPosition("UFI_TargetFrame")
+		ApplyPosition("UFI_TargetOfTargetFrame")
 		ApplyPosition("UFI_FocusFrame")
 		ApplyPosition("UFI_BossFrameAnchor")
 
 		-- Create overlays for movable frames AFTER positioning
 		CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
 		CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
+		if UFI_TargetOfTargetFrame then
+			CreateOverlay(UFI_TargetOfTargetFrame, "UFI_TargetOfTargetFrame")
+		end
 		CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
 		if UFI_BossFrameAnchor then
 			CreateOverlay(UFI_BossFrameAnchor, "UFI_BossFrameAnchor")
@@ -3456,9 +3493,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		for frameName, _ in pairs(defaultPositions) do
 			local frame = _G[frameName]
 			if frame then
-				local point, _, relativePoint, x, y = frame:GetPoint()
+				local point, relativeToFrame, relativePoint, x, y = frame:GetPoint()
 				if point then
-					SavePosition(frameName, point, relativePoint, x, y)
+					local relativeToName
+					if relativeToFrame then
+						relativeToName = relativeToFrame:GetName()
+						if not relativeToName and relativeToFrame == UIParent then
+							relativeToName = "UIParent"
+						end
+					end
+					SavePosition(frameName, point, relativePoint, x, y, relativeToName)
 				end
 			end
 		end
