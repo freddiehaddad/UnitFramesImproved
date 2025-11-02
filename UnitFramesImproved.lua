@@ -84,6 +84,15 @@ local FRAME_TEXTURES = {
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }
 
+local FRAME_TEXTURE_PIXEL_WIDTH = 256
+local FRAME_TEXTURE_PIXEL_HEIGHT = 128
+local FRAME_ARTWORK_PIXEL_WIDTH = 231
+local FRAME_ARTWORK_PIXEL_HEIGHT = 100
+local FRAME_ARTWORK_LEFT_GUTTER = 25
+local FRAME_ARTWORK_BOTTOM_GUTTER = 55
+local FRAME_ARTWORK_TOP_TRIM = 19
+local FRAME_ARTWORK_RIGHT_TRIM = 37
+
 local PLAYER_TEXTURE_COLORS = {
 	normal = { r = 1, g = 1, b = 1 },
 	threat = { r = 1, g = 0.3, b = 0.3 },
@@ -202,6 +211,40 @@ local function AttachFrameTexture(frame, texturePath, opts)
 		texture:SetTexCoord(1, 0, 0, 1)
 	end
 	return texture
+end
+
+local function ApplyFrameHitRect(frame, isMirrored)
+	if not frame then
+		return
+	end
+
+	local width = frame:GetWidth() or 0
+	local height = frame:GetHeight() or 0
+	if width <= 0 or height <= 0 then
+		return
+	end
+
+	local leftPixels = FRAME_ARTWORK_LEFT_GUTTER
+	local rightPixels = FRAME_ARTWORK_RIGHT_TRIM
+	if isMirrored then
+		leftPixels, rightPixels = rightPixels, leftPixels
+	end
+
+	local leftInset = (leftPixels / FRAME_TEXTURE_PIXEL_WIDTH) * width
+	local rightInset = (rightPixels / FRAME_TEXTURE_PIXEL_WIDTH) * width
+	local bottomInset = (FRAME_ARTWORK_BOTTOM_GUTTER / FRAME_TEXTURE_PIXEL_HEIGHT) * height
+	local topInsetValue = (FRAME_ARTWORK_TOP_TRIM / FRAME_TEXTURE_PIXEL_HEIGHT) * height
+
+	local function Round(value)
+		return math.floor(value + 0.5)
+	end
+
+	local finalLeftInset = Round(leftInset)
+	local finalRightInset = Round(rightInset)
+	local topInset = Round(topInsetValue)
+	local roundedBottomInset = Round(bottomInset)
+
+	frame:SetHitRectInsets(finalLeftInset, finalRightInset, topInset, roundedBottomInset)
 end
 
 local function CreateFontString(parent, fontOptions)
@@ -934,13 +977,12 @@ local function CreatePlayerFrame()
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4) -- Default Blizzard PlayerFrame position
 	frame:SetFrameStrata("LOW")
-	frame:SetFrameLevel(5)
 	frame:SetScale(1.15) -- Slightly larger than default
+	ApplyFrameHitRect(frame, true)
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
 	visual:SetFrameStrata("LOW")
-	visual:SetFrameLevel(frame:GetFrameLevel() + 15)
 	frame.visualLayer = visual
 
 	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
@@ -1459,8 +1501,8 @@ local function CreateTargetFrame()
 	frame:SetSize(232, 100)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -4) -- Default Blizzard TargetFrame position
 	frame:SetFrameStrata("LOW")
-	frame:SetFrameLevel(10)
 	frame:SetScale(1.15)
+	ApplyFrameHitRect(frame, false)
 
 	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
 		point = "TOPLEFT",
@@ -1634,8 +1676,8 @@ local function CreateFocusFrame()
 
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -250) -- Default Blizzard FocusFrame position
 	frame:SetFrameStrata("LOW")
-	frame:SetFrameLevel(1)
 	frame:SetScale(1.15)
+	ApplyFrameHitRect(frame, false)
 
 	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
 		point = "TOPLEFT",
@@ -1801,14 +1843,15 @@ local function CreateTargetOfTargetFrame()
 	frame:SetSize(232, 100) -- Same as player frame
 	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 100, 80) -- Below target portrait
 	frame:SetFrameStrata("LOW")
-	local targetFrameLevel = UFI_TargetFrame:GetFrameLevel() or 1
-	frame:SetFrameLevel(targetFrameLevel + 6)
+	local baseFrameLevel = (UFI_TargetFrame and UFI_TargetFrame:GetFrameLevel() or 0) + 5
+	frame:SetFrameLevel(baseFrameLevel)
 	frame:SetScale(0.6) -- Scale to 50% (half size)
+	ApplyFrameHitRect(frame, true)
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
 	visual:SetFrameStrata("LOW")
-	visual:SetFrameLevel(frame:GetFrameLevel() - 1)
+	visual:SetFrameLevel(baseFrameLevel - 1)
 	frame.visualLayer = visual
 
 	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
@@ -2077,7 +2120,6 @@ local function CreateBossFrames()
 		defaultPositions.UFI_BossFrameAnchor.y
 	)
 	anchor:SetFrameStrata("LOW")
-	anchor:SetFrameLevel(1)
 	anchor.frames = {}
 	UFI_BossFrameAnchor = anchor
 
@@ -2087,8 +2129,8 @@ local function CreateBossFrames()
 		frame:SetSize(232, 100)
 		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * BOSS_FRAME_STRIDE))
 		frame:SetFrameStrata("LOW")
-		frame:SetFrameLevel(5)
 		frame:SetScale(0.95)
+		ApplyFrameHitRect(frame, false)
 		frame.unit = unit
 		frame:EnableMouse(true)
 		frame:RegisterForClicks("AnyUp")
@@ -2101,7 +2143,6 @@ local function CreateBossFrames()
 		local visual = CreateFrame("Frame", nil, frame)
 		visual:SetAllPoints(frame)
 		visual:SetFrameStrata("LOW")
-		visual:SetFrameLevel(frame:GetFrameLevel() + 15)
 		frame.visualLayer = visual
 
 		frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
