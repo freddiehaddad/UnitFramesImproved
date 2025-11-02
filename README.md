@@ -19,6 +19,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 ### 🎨 Visual Enhancements
 
 - **Custom Textures** - Professional-looking frame borders and elite dragon overlays
+- **High-Resolution Artwork** - All frame textures recreated at double the original resolution (512×256) for crisper edges and cleaner curves without changing on-screen size
 - **Circular Portraits** - Clean 2D portraits with circular masking
 - **Color-Coded Power Bars** - Mana, rage, energy, focus, and runic power with proper colors
 - **Elite/Rare Indicators** - Gold elite, silver rare, and rare-elite dragon borders
