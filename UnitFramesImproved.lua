@@ -207,9 +207,6 @@ end
 local function CreateFontString(parent, fontOptions)
 	local fontString = parent:CreateFontString(nil, "OVERLAY")
 	local fontFlags = fontOptions.flags
-	if not fontFlags or fontFlags == "" then
-		fontFlags = "OUTLINE"
-	end
 	fontString:SetFont(fontOptions.path or FONT_DEFAULT, fontOptions.size, fontFlags)
 	local relativeTo = fontOptions.relativeTo or parent
 	local relativePoint = fontOptions.relativePoint or fontOptions.point
