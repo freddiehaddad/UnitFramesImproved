@@ -99,7 +99,7 @@ local PLAYER_TEXTURE_COLORS = {
 }
 
 local MAX_BOSS_FRAMES = 4
-local BOSS_FRAME_STRIDE = 120 -- vertical spacing per boss frame including cast bar clearance
+local BOSS_FRAME_STRIDE = 105 -- vertical spacing per boss frame including cast bar clearance
 local BOSS_CLASSIFICATION_TEXTURES = {
 	worldboss = FRAME_TEXTURES.elite,
 	elite = FRAME_TEXTURES.elite,
@@ -2229,8 +2229,8 @@ local function CreateBossFrames()
 				point = "TOP",
 				relativeTo = frame,
 				relativePoint = "BOTTOM",
-				x = 10,
-				y = -4,
+				x = 5,
+				y = 11,
 			},
 		})
 		frame.castBar.icon:SetPoint("RIGHT", frame.castBar, "LEFT", -4, 0)
