@@ -10,7 +10,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 
 ### 🎯 Complete Frame Suite
 
-- **Player Frame** - Enhanced health/power display with resting indicator, combat-red level text, aggro-tinting highlight, custom right-click menu, and an 8-slot self-buff tracker (sorted by remaining time with curated exclusions)
+- **Player Frame** - Enhanced health/power display with resting indicator, combat-red level text, aggro-tinting highlight, custom right-click menu, and a curated 5-slot self-buff tracker sorted by remaining time
 - **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
 - **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and a tailored interaction menu
 - **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
@@ -33,7 +33,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 ### ⚔️ Combat Features
 
 - **Cast Bars** - Full casting and channeling tracking for target, focus, and each boss frame
-  - Interrupt-able indicators (shield icon when not interruptible)
+  - Cast bar tint shifts to grey when a spell cannot be interrupted
   - Spell names and cast times
   - Smooth progress animations
 - **Debuff Tracking** - Slim, player-focused aura rows
@@ -69,6 +69,7 @@ A complete unit frame replacement addon for **Ascension's Warcraft Reborn** priv
 - **Instant Response** - Smooth, lag-free dragging with pixel-perfect precision
 - **Visual Feedback** - Color-coded overlays (green=unlocked, yellow=dragging)
 - **Position Persistence** - Frame locations saved per character
+- **Per-Frame Scaling** - Each frame remembers its individual scale and reapplies it on login
 - **Combat Protection** - Frames auto-lock during combat to prevent taint
 - **Reset Options** - Restore default positions individually or all at once
 - **Group Anchors** - Boss frames share a single anchor so the full stack moves together
@@ -99,11 +100,12 @@ UnitFramesImproved/
 ├── UnitFramesImproved.toc    # Addon metadata
 ├── README.md                 # This file
 └── Textures/
-    ├── UI-FocusTargetingFrame.blp
-    ├── UI-TargetingFrame.blp
-    ├── UI-TargetingFrame-Elite.blp
-    ├── UI-TargetingFrame-Rare.blp
-    └── UI-TargetingFrame-Rare-Elite.blp
+  ├── UI-TargetingFrame.blp
+  ├── UI-TargetingFrame-Elite.blp
+  ├── UI-TargetingFrame-Rare.blp
+  ├── UI-TargetingFrame-Rare-Elite.blp
+  ├── UI-TargetingFrame-512x256/<variants>
+  └── 256x128/<variants>
 ```
 
 ## 🎮 Usage
@@ -207,7 +209,7 @@ The target-of-target frame mirrors Blizzard's Interface Options:
 ### Saved Variables
 
 - **Per-character positions** - Each character has their own frame layout
-- **Position validation** - Out-of-bounds positions automatically reset to defaults
+- **Position validation** - Gracefully falls back to defaults when saved data is missing or malformed
 - **Lock state persistence** - Remembers if frames were unlocked (restores on login if not in combat)
 
 ### Performance

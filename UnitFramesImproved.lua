@@ -4,17 +4,289 @@
 	This addon creates completely custom unit frames independent of Blizzard's
 	default frames to avoid taint issues while providing enhanced visuals.
 ]]
---
 
 -------------------------------------------------------------------------------
 -- ADDON INITIALIZATION
 -------------------------------------------------------------------------------
 
-local addonName = "UnitFramesImproved"
-local UFI = {} -- Main addon namespace
-
 -- Frame references (global for debugging)
 UFI_PlayerFrame = nil
+
+-- Pixel-perfect layout definitions (shared by all unit frames)
+local UFI_LAYOUT = {
+	TextureSize = { width = 512, height = 256 },
+	Art = { x = 52, y = 0, width = 460, height = 200 },
+	Click = { x = 56, y = 42, width = 372, height = 87 },
+	Health = { x = 60, y = 46, width = 238, height = 58 },
+	Power = { x = 60, y = 106, width = 236, height = 20 },
+	Portrait = { x = 305, y = 31, width = 116, height = 116 },
+	LevelRest = { x = 386, y = 112, width = 39, height = 39 },
+	CastBar = {
+		TextureSize = { width = 128, height = 16 },
+		Fill = { x = 3, y = 3, width = 122, height = 10 },
+		OffsetY = 50,
+		DefaultWidth = 122,
+		DefaultHeight = 10,
+	},
+}
+
+--[[
+Pixel Alignment Validation
+- Temporarily enable a 1:1 UI scale with `/console UIScale 1` and reload to avoid filtering.
+- Use the `/ufi unlock` overlay to confirm bars and portraits line up against the art cutouts.
+- Toggle `ProjectedTextures` and inspect the cast bars; every edge should sit on whole pixels without shimmering.
+- Restore your preferred scale after verification.
+]]
+
+local function LayoutResolveX(rect, mirrored)
+	local width = rect.width or rect.size
+	if not mirrored then
+		return rect.x - UFI_LAYOUT.Art.x
+	end
+	local localX = rect.x - UFI_LAYOUT.Art.x
+	return UFI_LAYOUT.Art.width - (localX + width)
+end
+
+local function LayoutResolveY(rect)
+	return rect.y - UFI_LAYOUT.Art.y
+end
+
+local function LayoutResolveRect(rect, mirrored)
+	local x = LayoutResolveX(rect, mirrored)
+	local y = LayoutResolveY(rect)
+	local width = rect.width or rect.size
+	local height = rect.height or rect.size
+	return x, y, width, height
+end
+
+local function LayoutToTexCoord(rect)
+	local tex = UFI_LAYOUT.TextureSize
+	local left = rect.x / tex.width
+	local right = (rect.x + rect.width) / tex.width
+	local top = rect.y / tex.height
+	local bottom = (rect.y + rect.height) / tex.height
+	return left, right, top, bottom
+end
+
+local AURA_ICON_SPACING = 4
+local AURA_ROW_VERTICAL_SPACING = 6
+local AURA_HITRECT_PADDING = 5
+
+local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
+
+-- Default per-frame scale values (stored individually for future adjustments)
+local DEFAULT_FRAME_SCALES = {
+	UFI_PlayerFrame = 0.6,
+	UFI_TargetFrame = 0.6,
+	UFI_TargetOfTargetFrame = 0.3,
+	UFI_FocusFrame = 0.6,
+	UFI_BossFrameAnchor = 0.6,
+}
+
+local function GetFrameScale(frameName)
+	if not frameName then
+		return 1
+	end
+
+	local db = UnitFramesImprovedDB or {}
+	local scales = db.scales or {}
+	local scale = scales[frameName]
+	if type(scale) == "number" and scale > 0 then
+		return scale
+	end
+
+	return DEFAULT_FRAME_SCALES[frameName] or 1
+end
+
+local function SetFrameScale(frameName, scale)
+	if not frameName or type(scale) ~= "number" or scale <= 0 then
+		return
+	end
+
+	UnitFramesImprovedDB = UnitFramesImprovedDB or {}
+	UnitFramesImprovedDB.scales = UnitFramesImprovedDB.scales or {}
+	UnitFramesImprovedDB.scales[frameName] = scale
+
+	local frame = _G[frameName]
+	if frame then
+		frame:SetScale(scale)
+		if type(UpdateOverlayForFrame) == "function" then
+			UpdateOverlayForFrame(frameName)
+		end
+	end
+end
+
+local function ApplySavedScaleToFrame(frame)
+	if not frame then
+		return
+	end
+
+	local name = frame:GetName()
+	if not name then
+		return
+	end
+
+	frame:SetScale(GetFrameScale(name))
+end
+
+local function ApplyFrameHitRect(frame, isMirrored)
+	if not frame then
+		return
+	end
+
+	local art = UFI_LAYOUT.Art
+	local click = UFI_LAYOUT.Click
+
+	local clickLeft = LayoutResolveX(click, isMirrored)
+	local clickTop = LayoutResolveY(click)
+	local leftInset = clickLeft
+	local rightInset = art.width - (clickLeft + click.width)
+	local topInset = clickTop
+	local bottomInset = art.height - (clickTop + click.height)
+
+	local left = math.floor(leftInset + 0.5)
+	local right = math.floor(rightInset + 0.5)
+	local top = math.floor(topInset + 0.5)
+	local bottom = math.floor(bottomInset + 0.5)
+
+	frame:SetHitRectInsets(left, right, top, bottom)
+	frame.ufHitRect = {
+		left = left,
+		right = right,
+		top = top,
+		bottom = bottom,
+	}
+end
+
+local function CreateUnitArtTexture(parent, texturePath, mirrored, layer, subLevel)
+	local texture = parent:CreateTexture(nil, layer or "ARTWORK", nil, subLevel or 0)
+	texture:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+	texture:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
+	texture:SetTexture(texturePath)
+	local left, right, top, bottom = LayoutToTexCoord(UFI_LAYOUT.Art)
+	if mirrored then
+		texture:SetTexCoord(right, left, top, bottom)
+	else
+		texture:SetTexCoord(left, right, top, bottom)
+	end
+	return texture
+end
+
+local function SetupUnitFrameBase(frame, texturePath, mirrored)
+	frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
+	frame:SetFrameStrata("LOW")
+	ApplySavedScaleToFrame(frame)
+	frame.mirrored = mirrored
+
+	ApplyFrameHitRect(frame, mirrored)
+
+	local visual = CreateFrame("Frame", nil, frame)
+	visual:SetAllPoints(frame)
+	visual:SetFrameStrata("LOW")
+	visual:SetFrameLevel(frame:GetFrameLevel())
+	frame.visualLayer = visual
+
+	frame.texture = CreateUnitArtTexture(visual, texturePath, mirrored, "ARTWORK", 0)
+	frame.portraitMask = CreateUnitArtTexture(visual, texturePath, mirrored, "ARTWORK", 5)
+	frame.portraitMask:SetBlendMode("BLEND")
+	frame.texture:SetVertexColor(1, 1, 1)
+	frame.portraitMask:SetVertexColor(1, 1, 1)
+
+	return visual
+end
+
+local function CreateAuraIcon(parent, size)
+	local iconFrame = CreateFrame("Frame", nil, parent)
+	iconFrame:SetSize(size, size)
+	iconFrame:SetFrameLevel(parent:GetFrameLevel())
+
+	iconFrame.icon = iconFrame:CreateTexture(nil, "ARTWORK")
+	local iconSize = math.max(size - 4, 0)
+	iconFrame.icon:SetSize(iconSize, iconSize)
+	iconFrame.icon:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
+	iconFrame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+	iconFrame.border = iconFrame:CreateTexture(nil, "OVERLAY")
+	iconFrame.border:SetSize(size, size)
+	iconFrame.border:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
+	iconFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+	iconFrame.border:SetTexCoord(39 / 128, (39 + 34) / 128, 0 / 64, 34 / 64)
+
+	iconFrame.cooldown = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
+	iconFrame.cooldown:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
+	iconFrame.cooldown:SetSize(iconSize, iconSize)
+
+	local countFontSize = math.max(10, math.floor(size * 0.36))
+	iconFrame.count = iconFrame:CreateFontString(nil, "OVERLAY")
+	iconFrame.count:SetFont(FONT_DEFAULT, countFontSize, "OUTLINE")
+	iconFrame.count:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", 0, 0)
+
+	iconFrame:Hide()
+	return iconFrame
+end
+
+local function PositionAuraRow(row, frame, mirrored, position, order)
+	if not row or not row.container then
+		return
+	end
+
+	local container = row.container
+	local healthX, _, healthWidth = LayoutResolveRect(UFI_LAYOUT.Health, mirrored)
+	local rowHeight = row.iconSize
+	local clickTop = LayoutResolveY(UFI_LAYOUT.Click)
+	local clickBottom = clickTop + UFI_LAYOUT.Click.height
+	local topOffset
+
+	order = order or 1
+	position = position or row.position or "below"
+
+	if position == "above" then
+		topOffset = clickTop - AURA_HITRECT_PADDING - rowHeight - (order - 1) * (rowHeight + AURA_ROW_VERTICAL_SPACING)
+	else
+		topOffset = clickBottom + AURA_HITRECT_PADDING + (order - 1) * (rowHeight + AURA_ROW_VERTICAL_SPACING)
+	end
+
+	container:ClearAllPoints()
+	container:SetPoint("TOPLEFT", frame, "TOPLEFT", healthX, -topOffset)
+	container:SetWidth(healthWidth)
+	row.position = position
+	row.currentOrder = order
+end
+
+local function CreateAuraRow(frame, options)
+	local count = options.count or 5
+	local mirrored = not not options.mirrored
+	local parent = options.parent or frame
+	local position = options.position or "below"
+	local order = options.order or 1
+	local spacing = options.spacing or AURA_ICON_SPACING
+	local desiredStrata = options.frameStrata or parent:GetFrameStrata()
+	local desiredLevel = options.frameLevel or ((parent:GetFrameLevel() or 0) + 15)
+
+	local _, _, healthWidth = LayoutResolveRect(UFI_LAYOUT.Health, mirrored)
+	local iconSize = (healthWidth - (count - 1) * spacing) / count
+
+	local container = CreateFrame("Frame", nil, parent)
+	container:SetSize(healthWidth, iconSize)
+	container:SetFrameStrata(desiredStrata)
+	container:SetFrameLevel(desiredLevel)
+
+	local icons = {}
+	for i = 1, count do
+		local icon = CreateAuraIcon(container, iconSize)
+		icon:SetPoint("TOPLEFT", container, "TOPLEFT", (i - 1) * (iconSize + spacing), 0)
+		icons[i] = icon
+	end
+
+	icons.container = container
+	icons.iconSize = iconSize
+	icons.position = position
+
+	PositionAuraRow(icons, frame, mirrored, position, order)
+
+	return icons
+end
 
 -------------------------------------------------------------------------------
 -- UTILITY FUNCTIONS
@@ -69,13 +341,6 @@ local function AbbreviateNumber(value)
 	end
 end
 
--------------------------------------------------------------------------------
--- SHARED CONSTANTS AND HELPERS
--------------------------------------------------------------------------------
-
-local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
-
 local FRAME_TEXTURES = {
 	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
 	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
@@ -84,22 +349,17 @@ local FRAME_TEXTURES = {
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }
 
-local FRAME_TEXTURE_PIXEL_WIDTH = 512
-local FRAME_TEXTURE_PIXEL_HEIGHT = 256
-local FRAME_ARTWORK_PIXEL_WIDTH = 462
-local FRAME_ARTWORK_PIXEL_HEIGHT = 200
-local FRAME_ARTWORK_LEFT_GUTTER = 50
-local FRAME_ARTWORK_BOTTOM_GUTTER = 122
-local FRAME_ARTWORK_TOP_TRIM = 38
-local FRAME_ARTWORK_RIGHT_TRIM = 74
-
 local PLAYER_TEXTURE_COLORS = {
 	normal = { r = 1, g = 1, b = 1 },
 	threat = { r = 1, g = 0.3, b = 0.3 },
 }
 
 local MAX_BOSS_FRAMES = 4
-local BOSS_FRAME_STRIDE = 105 -- vertical spacing per boss frame including cast bar clearance
+for index = 1, MAX_BOSS_FRAMES do
+	DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index] = DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index]
+		or DEFAULT_FRAME_SCALES.UFI_BossFrameAnchor
+end
+local BOSS_FRAME_STRIDE = UFI_LAYOUT.Art.height + UFI_LAYOUT.CastBar.OffsetY + 40
 local BOSS_CLASSIFICATION_TEXTURES = {
 	worldboss = FRAME_TEXTURES.elite,
 	elite = FRAME_TEXTURES.elite,
@@ -162,89 +422,27 @@ local SELF_BUFF_EXCLUSIONS = {
 	[9931032] = true,
 }
 
-local function CreateStatusBar(parent, size, anchor)
+local function CreateStatusBar(parent, rect, mirrored)
+	local x, y, width, height = LayoutResolveRect(rect, mirrored)
 	local bar = CreateFrame("StatusBar", nil, parent)
-	bar:SetSize(size.width, size.height)
-	local point = (anchor and anchor.point) or "CENTER"
-	local relativeTo = (anchor and anchor.relativeTo) or parent
-	local relativePoint = (anchor and anchor.relativePoint) or point
-	local offsetX = (anchor and anchor.x) or 0
-	local offsetY = (anchor and anchor.y) or 0
-	bar:SetPoint(point, relativeTo, relativePoint, offsetX, offsetY)
+	bar:SetSize(width, height)
+	bar:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
 	bar:SetStatusBarTexture(STATUSBAR_TEXTURE)
-	local fill = bar:GetStatusBarTexture()
-	fill:SetHorizTile(false)
-	fill:SetVertTile(false)
-	fill:SetDrawLayer("ARTWORK", 0)
-	fill:SetVertexColor(1, 1, 1, 1)
+	local texture = bar:GetStatusBarTexture()
+	texture:SetHorizTile(false)
+	texture:SetVertTile(false)
+	texture:SetDrawLayer("ARTWORK", 0)
+	texture:SetVertexColor(1, 1, 1, 1)
 	bar:SetMinMaxValues(0, 100)
 	bar:SetValue(100)
-	local parentLevel = parent:GetFrameLevel() or 0
-	bar:SetFrameLevel(math.max(parentLevel - 1, 0))
+	bar:SetFrameLevel(math.max((parent:GetFrameLevel() or 1) - 1, 0))
 
 	local bg = bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.75)
+	bg:SetColorTexture(0, 0, 0, 0.75)
 	bg:SetAllPoints(bar)
-	bg:SetDrawLayer("BACKGROUND", -1)
 	bar.bg = bg
 
-	if bar.SetBackdrop then
-		bar:SetBackdrop(nil)
-	end
-
 	return bar
-end
-
-local function AttachFrameTexture(frame, texturePath, opts)
-	local layer = opts and opts.layer or "BORDER"
-	local subLevel = opts and opts.subLevel or 0
-	local texture = frame:CreateTexture(nil, layer, nil, subLevel)
-	texture:SetTexture(texturePath)
-	texture:SetSize(opts and opts.width or 232, opts and opts.height or 110)
-	local point = opts and opts.point or "TOPLEFT"
-	local relativeTo = opts and opts.relativeTo or frame
-	local relativePoint = opts and opts.relativePoint or point
-	local offsetX = opts and opts.x or 0
-	local offsetY = opts and opts.y or 0
-	texture:SetPoint(point, relativeTo, relativePoint, offsetX, offsetY)
-	if opts and opts.mirror then
-		texture:SetTexCoord(1, 0, 0, 1)
-	end
-	return texture
-end
-
-local function ApplyFrameHitRect(frame, isMirrored)
-	if not frame then
-		return
-	end
-
-	local width = frame:GetWidth() or 0
-	local height = frame:GetHeight() or 0
-	if width <= 0 or height <= 0 then
-		return
-	end
-
-	local leftPixels = FRAME_ARTWORK_LEFT_GUTTER
-	local rightPixels = FRAME_ARTWORK_RIGHT_TRIM
-	if isMirrored then
-		leftPixels, rightPixels = rightPixels, leftPixels
-	end
-
-	local leftInset = (leftPixels / FRAME_TEXTURE_PIXEL_WIDTH) * width
-	local rightInset = (rightPixels / FRAME_TEXTURE_PIXEL_WIDTH) * width
-	local bottomInset = (FRAME_ARTWORK_BOTTOM_GUTTER / FRAME_TEXTURE_PIXEL_HEIGHT) * height
-	local topInsetValue = (FRAME_ARTWORK_TOP_TRIM / FRAME_TEXTURE_PIXEL_HEIGHT) * height
-
-	local function Round(value)
-		return math.floor(value + 0.5)
-	end
-
-	local finalLeftInset = Round(leftInset)
-	local finalRightInset = Round(rightInset)
-	local topInset = Round(topInsetValue)
-	local roundedBottomInset = Round(bottomInset)
-
-	frame:SetHitRectInsets(finalLeftInset, finalRightInset, topInset, roundedBottomInset)
 end
 
 local function CreateFontString(parent, fontOptions)
@@ -261,75 +459,14 @@ local function CreateFontString(parent, fontOptions)
 	return fontString
 end
 
-local function CreatePortrait(frame, opts)
-	local portrait = frame:CreateTexture(nil, "BACKGROUND", nil, 5)
-	portrait:SetSize(opts.width or 50, opts.height or 48)
-	portrait:SetPoint(opts.point, opts.relativeTo or frame, opts.relativePoint or opts.point, opts.x or 0, opts.y or 0)
-	local crop = opts.crop or 0.08
-	portrait:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
+local function CreatePortrait(parent, mirrored)
+	local rect = UFI_LAYOUT.Portrait
+	local x, y, width, height = LayoutResolveRect(rect, mirrored)
+	local portrait = parent:CreateTexture(nil, "BACKGROUND", nil, 0)
+	portrait:SetSize(width, height)
+	portrait:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+	portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	return portrait
-end
-
-local function CreateAuraIcon(parent, size)
-	local iconFrame = CreateFrame("Frame", nil, parent)
-	iconFrame:SetSize(size, size)
-
-	iconFrame.icon = iconFrame:CreateTexture(nil, "ARTWORK")
-	iconFrame.icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 1, -1)
-	iconFrame.icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -1, 1)
-	iconFrame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-	iconFrame.border = iconFrame:CreateTexture(nil, "OVERLAY")
-	iconFrame.border:SetAllPoints()
-	iconFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-	iconFrame.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-
-	iconFrame.cooldown = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
-	iconFrame.cooldown:SetAllPoints()
-
-	iconFrame.count = iconFrame:CreateFontString(nil, "OVERLAY")
-	iconFrame.count:SetFont(FONT_DEFAULT, 10, "OUTLINE")
-	iconFrame.count:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", 0, 0)
-
-	iconFrame:Hide()
-	return iconFrame
-end
-
-local function CreateAuraRow(parent, rowOptions)
-	local icons = {}
-	for i = 1, rowOptions.count do
-		local icon = CreateAuraIcon(parent, rowOptions.size)
-		if i == 1 then
-			local anchor = rowOptions.anchor
-			icon:SetPoint(
-				anchor.point,
-				anchor.relativeTo or parent,
-				anchor.relativePoint or anchor.point,
-				anchor.x or 0,
-				anchor.y or 0
-			)
-		else
-			icon:SetPoint("LEFT", icons[i - 1], "RIGHT", rowOptions.spacing or 2, 0)
-		end
-		icons[i] = icon
-	end
-	return icons
-end
-
-local function SetAuraRowAnchor(row, anchor)
-	if not row or not row[1] or not anchor then
-		return
-	end
-
-	local firstIcon = row[1]
-	local point = anchor.point or "TOPLEFT"
-	local relativePoint = anchor.relativePoint or point
-	local xOffset = anchor.x or 0
-	local yOffset = anchor.y or 0
-	local relativeTo = anchor.relativeTo or firstIcon:GetParent()
-
-	firstIcon:ClearAllPoints()
-	firstIcon:SetPoint(point, relativeTo, relativePoint, xOffset, yOffset)
 end
 
 local RAID_TARGET_ICON_OPTIONS = {
@@ -540,39 +677,41 @@ end
 local frameOverlays = {}
 local isUnlocked = false
 local pendingPositions = {}
+local unsavedPositions = {}
+local UpdateOverlayForFrame -- forward declaration
 
 -- Default frame positions
 local defaultPositions = {
 	UFI_PlayerFrame = {
 		point = "TOPLEFT",
 		relativePoint = "TOPLEFT",
-		x = -19,
-		y = -4,
+		x = 5,
+		y = -30,
 	},
 	UFI_TargetFrame = {
 		point = "TOPLEFT",
 		relativePoint = "TOPLEFT",
-		x = 250,
-		y = -4,
+		x = 500,
+		y = -30,
 	},
 	UFI_TargetOfTargetFrame = {
-		point = "TOP",
+		point = "TOPLEFT",
 		relativeTo = "UFI_TargetFrame",
-		relativePoint = "BOTTOM",
-		x = 100,
-		y = 80,
+		relativePoint = "BOTTOMLEFT",
+		x = 385,
+		y = 125,
 	},
 	UFI_FocusFrame = {
 		point = "TOPLEFT",
 		relativePoint = "TOPLEFT",
-		x = 250,
-		y = -250,
+		x = 500,
+		y = -400,
 	},
 	UFI_BossFrameAnchor = {
 		point = "TOPRIGHT",
 		relativePoint = "TOPRIGHT",
-		x = -80,
-		y = -180,
+		x = -125,
+		y = -325,
 	},
 }
 
@@ -583,12 +722,21 @@ local function InitializeDatabase()
 			version = "1.0.0",
 			isUnlocked = false,
 			positions = {},
+			scales = {},
 		}
 	end
 
 	-- Migrate old versions if needed
 	if not UnitFramesImprovedDB.version or UnitFramesImprovedDB.version < "1.0.0" then
 		UnitFramesImprovedDB.version = "1.0.0"
+	end
+
+	UnitFramesImprovedDB.scales = UnitFramesImprovedDB.scales or {}
+	for frameName, defaultScale in pairs(DEFAULT_FRAME_SCALES) do
+		local current = UnitFramesImprovedDB.scales[frameName]
+		if type(current) ~= "number" or current <= 0 then
+			UnitFramesImprovedDB.scales[frameName] = defaultScale
+		end
 	end
 end
 
@@ -604,18 +752,44 @@ local function ValidatePosition(pos)
 		return false
 	end
 
-	-- Check if position is within screen bounds (with some margin)
-	local screenWidth = GetScreenWidth()
-	local screenHeight = GetScreenHeight()
-
-	if pos.x < -300 or pos.x > screenWidth + 100 then
-		return false
-	end
-	if pos.y > 100 or pos.y < -screenHeight - 100 then
-		return false
-	end
-
 	return true
+end
+
+local function GetSavedPosition(frameName)
+	UnitFramesImprovedDB = UnitFramesImprovedDB or {}
+	UnitFramesImprovedDB.positions = UnitFramesImprovedDB.positions or {}
+
+	local stored = UnitFramesImprovedDB.positions[frameName]
+	if stored and ValidatePosition(stored) then
+		return stored
+	end
+
+	return defaultPositions[frameName]
+end
+
+-- Ensure a frame lands on either its saved position or our layout default.
+local function InitializeFramePosition(frameName, frame, pos)
+	frame = frame or _G[frameName]
+	if not frame then
+		return nil
+	end
+
+	pos = pos or GetSavedPosition(frameName)
+	if not pos then
+		return nil
+	end
+
+	local relativeFrame = UIParent
+	if pos.relativeTo then
+		relativeFrame = _G[pos.relativeTo] or UIParent
+	end
+
+	ApplySavedScaleToFrame(frame)
+
+	frame:ClearAllPoints()
+	frame:SetPoint(pos.point, relativeFrame, pos.relativePoint, pos.x, pos.y)
+
+	return pos
 end
 
 -- Check if frames can be repositioned
@@ -645,34 +819,36 @@ local function ApplyPosition(frameName)
 		return
 	end
 
-	local pos = UnitFramesImprovedDB.positions[frameName]
-	if not pos or not ValidatePosition(pos) then
-		-- Use default position
-		pos = defaultPositions[frameName]
-		if not pos then
-			return
-		end
-	end
-
-	local relativeFrame = UIParent
-	if pos.relativeTo then
-		relativeFrame = _G[pos.relativeTo] or UIParent
-	end
-
 	if CanRepositionFrames() then
-		frame:ClearAllPoints()
-		frame:SetPoint(pos.point, relativeFrame, pos.relativePoint, pos.x, pos.y)
-		pendingPositions[frameName] = nil
-
-		-- Sync overlay position to match frame
-		local overlay = frameOverlays[frameName]
-		if overlay then
-			overlay:ClearAllPoints()
-			overlay:SetPoint(pos.point, relativeFrame, pos.relativePoint, pos.x, pos.y)
+		local pos = InitializeFramePosition(frameName, frame)
+		if pos then
+			pendingPositions[frameName] = nil
+			local overlay = frameOverlays[frameName]
+			if overlay then
+				UpdateOverlayForFrame(frameName)
+			end
 		end
 	else
 		-- Save for later
 		pendingPositions[frameName] = true
+	end
+end
+
+local function ApplyFramePositionData(frameName, pos)
+	local frame = _G[frameName]
+	if not frame then
+		return
+	end
+
+	if not CanRepositionFrames() then
+		pendingPositions[frameName] = true
+		return
+	end
+
+	local usedPos = InitializeFramePosition(frameName, frame, pos)
+	if usedPos then
+		pendingPositions[frameName] = nil
+		UpdateOverlayForFrame(frameName)
 	end
 end
 
@@ -683,7 +859,12 @@ local function ApplyPendingPositions()
 	end
 
 	for frameName, _ in pairs(pendingPositions) do
-		ApplyPosition(frameName)
+		local unsaved = unsavedPositions[frameName]
+		if unsaved then
+			ApplyFramePositionData(frameName, unsaved)
+		else
+			ApplyPosition(frameName)
+		end
 	end
 
 	if next(pendingPositions) then
@@ -699,9 +880,339 @@ local function ResetFramePosition(frameName)
 		return
 	end
 
-	SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y, pos.relativeTo)
+	if UnitFramesImprovedDB and UnitFramesImprovedDB.positions then
+		UnitFramesImprovedDB.positions[frameName] = nil
+	end
 	ApplyPosition(frameName)
+
+	local defaultScale = DEFAULT_FRAME_SCALES[frameName]
+	if defaultScale then
+		SetFrameScale(frameName, defaultScale)
+	end
+
 	Print("Reset " .. frameName .. " to default position")
+end
+
+local function ApplyOverlayColorTextures(overlay, r, g, b, a)
+	if overlay.border then
+		overlay.border:SetColorTexture(r, g, b, a)
+	end
+
+	if overlay.borderSegments then
+		for _, segment in ipairs(overlay.borderSegments) do
+			segment:SetColorTexture(r, g, b, a)
+		end
+	end
+
+	if overlay.bossSegments then
+		local segmentAlpha = math.min(1, (a or 0.5) * 0.6)
+		for _, segment in ipairs(overlay.bossSegments) do
+			segment:SetColorTexture(r, g, b, segmentAlpha)
+		end
+	end
+end
+
+local function SetOverlayColor(overlay, r, g, b, a)
+	if not overlay then
+		return
+	end
+
+	overlay.overlayColor = overlay.overlayColor or {}
+	overlay.overlayColor.r = r
+	overlay.overlayColor.g = g
+	overlay.overlayColor.b = b
+	overlay.overlayColor.a = a
+
+	ApplyOverlayColorTextures(overlay, r, g, b, a)
+end
+
+local function ComputeAnchorOffsets(point, frameWidth, frameHeight, overlayWidth, overlayHeight, leftInset, topInset)
+	point = point or "TOPLEFT"
+
+	local horizontal = "CENTER"
+	if string.find(point, "LEFT") then
+		horizontal = "LEFT"
+	elseif string.find(point, "RIGHT") then
+		horizontal = "RIGHT"
+	end
+
+	local vertical = "CENTER"
+	if string.find(point, "TOP") then
+		vertical = "TOP"
+	elseif string.find(point, "BOTTOM") then
+		vertical = "BOTTOM"
+	end
+
+	local frameTopLeftXOffset
+	if horizontal == "LEFT" then
+		frameTopLeftXOffset = 0
+	elseif horizontal == "RIGHT" then
+		frameTopLeftXOffset = -frameWidth
+	else
+		frameTopLeftXOffset = -frameWidth * 0.5
+	end
+
+	local frameTopLeftYOffset
+	if vertical == "TOP" then
+		frameTopLeftYOffset = 0
+	elseif vertical == "BOTTOM" then
+		frameTopLeftYOffset = frameHeight
+	else
+		frameTopLeftYOffset = frameHeight * 0.5
+	end
+
+	local overlayAnchorToTopLeftX
+	if horizontal == "LEFT" then
+		overlayAnchorToTopLeftX = 0
+	elseif horizontal == "RIGHT" then
+		overlayAnchorToTopLeftX = -overlayWidth
+	else
+		overlayAnchorToTopLeftX = -overlayWidth * 0.5
+	end
+
+	local overlayAnchorToTopLeftY
+	if vertical == "TOP" then
+		overlayAnchorToTopLeftY = 0
+	elseif vertical == "BOTTOM" then
+		overlayAnchorToTopLeftY = overlayHeight
+	else
+		overlayAnchorToTopLeftY = overlayHeight * 0.5
+	end
+
+	local anchorXOffset = frameTopLeftXOffset + leftInset - overlayAnchorToTopLeftX
+	local anchorYOffset = frameTopLeftYOffset - topInset - overlayAnchorToTopLeftY
+
+	return anchorXOffset, anchorYOffset
+end
+
+local function UpdateStandardOverlayGeometry(frame, overlay)
+	if not frame or not overlay then
+		return
+	end
+
+	local rect = frame.ufHitRect
+	local left = rect and rect.left or 0
+	local right = rect and rect.right or 0
+	local top = rect and rect.top or 0
+	local bottom = rect and rect.bottom or 0
+	local frameWidth = frame:GetWidth()
+	local frameHeight = frame:GetHeight()
+
+	local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
+	if not point then
+		return
+	end
+
+	relativeTo = relativeTo or UIParent
+	relativePoint = relativePoint or point
+
+	local overlayWidth = math.max(1, frameWidth - left - right)
+	local overlayHeight = math.max(1, frameHeight - top - bottom)
+	local anchorXOffset, anchorYOffset =
+		ComputeAnchorOffsets(point, frameWidth, frameHeight, overlayWidth, overlayHeight, left, top)
+
+	overlay:ClearAllPoints()
+	overlay:SetPoint(point, relativeTo, relativePoint, (x or 0) + anchorXOffset, (y or 0) + anchorYOffset)
+	overlay:SetSize(overlayWidth, overlayHeight)
+	overlay:SetScale(frame:GetScale())
+	overlay.anchorAdjustX = anchorXOffset
+	overlay.anchorAdjustY = anchorYOffset
+	overlay.clickInsets = rect
+
+	if overlay.overlayColor then
+		ApplyOverlayColorTextures(
+			overlay,
+			overlay.overlayColor.r,
+			overlay.overlayColor.g,
+			overlay.overlayColor.b,
+			overlay.overlayColor.a
+		)
+	else
+		ApplyOverlayColorTextures(overlay, 0, 1, 0, 0.5)
+	end
+end
+
+local function CalculateBossOverlayData(anchor)
+	if not anchor or not anchor.frames then
+		return nil
+	end
+
+	local anchorWidth = anchor:GetWidth()
+	local anchorHeight = anchor:GetHeight()
+	local minLeft = anchorWidth
+	local minTop = anchorHeight
+	local maxRight = 0
+	local maxBottom = 0
+	local segments = {}
+
+	for index, frame in ipairs(anchor.frames) do
+		local rect = frame.ufHitRect
+		if rect then
+			local frameWidth = frame:GetWidth() - rect.left - rect.right
+			local frameHeight = frame:GetHeight() - rect.top - rect.bottom
+			local offsetY = (index - 1) * BOSS_FRAME_STRIDE
+			local left = rect.left
+			local right = left + frameWidth
+			local top = rect.top + offsetY
+			local bottom = top + frameHeight
+
+			minLeft = math.min(minLeft, left)
+			minTop = math.min(minTop, top)
+			maxRight = math.max(maxRight, right)
+			maxBottom = math.max(maxBottom, bottom)
+
+			segments[#segments + 1] = {
+				slotIndex = index,
+				left = left,
+				top = top,
+				width = frameWidth,
+				height = frameHeight,
+			}
+		end
+	end
+
+	if maxRight <= minLeft or maxBottom <= minTop then
+		return nil
+	end
+
+	return {
+		left = minLeft,
+		top = minTop,
+		right = math.max(anchorWidth - maxRight, 0),
+		bottom = math.max(anchorHeight - maxBottom, 0),
+		segments = segments,
+	}
+end
+
+local function UpdateBossOverlayGeometry(anchor, overlay)
+	if not anchor or not overlay then
+		return
+	end
+
+	local data = CalculateBossOverlayData(anchor)
+	local point, relativeTo, relativePoint, x, y = anchor:GetPoint(1)
+	if not point then
+		point = "TOPLEFT"
+		relativeTo = UIParent
+		relativePoint = "TOPLEFT"
+		x, y = 0, 0
+	else
+		relativeTo = relativeTo or UIParent
+		relativePoint = relativePoint or point
+	end
+
+	overlay:ClearAllPoints()
+
+	if not data then
+		overlay:SetPoint(point, relativeTo, relativePoint, x or 0, y or 0)
+		overlay:SetSize(anchor:GetWidth(), anchor:GetHeight())
+		overlay:SetScale(anchor:GetScale())
+		overlay.anchorAdjustX = 0
+		overlay.anchorAdjustY = 0
+		overlay.clickInsets = nil
+
+		if overlay.bossSegments then
+			for _, segment in ipairs(overlay.bossSegments) do
+				segment:Hide()
+			end
+		end
+
+		return
+	end
+
+	local anchorWidth = anchor:GetWidth()
+	local anchorHeight = anchor:GetHeight()
+	local overlayWidth = math.max(1, anchorWidth - data.left - data.right)
+	local overlayHeight = math.max(1, anchorHeight - data.top - data.bottom)
+	local anchorXOffset, anchorYOffset =
+		ComputeAnchorOffsets(point, anchorWidth, anchorHeight, overlayWidth, overlayHeight, data.left, data.top)
+
+	overlay:SetPoint(point, relativeTo, relativePoint, (x or 0) + anchorXOffset, (y or 0) + anchorYOffset)
+	overlay:SetSize(overlayWidth, overlayHeight)
+	overlay:SetScale(anchor:GetScale())
+	overlay.anchorAdjustX = anchorXOffset
+	overlay.anchorAdjustY = anchorYOffset
+	overlay.clickInsets = {
+		left = data.left,
+		top = data.top,
+		right = data.right,
+		bottom = data.bottom,
+	}
+
+	overlay.bossSegments = overlay.bossSegments or {}
+	for index, segInfo in ipairs(data.segments) do
+		local segment = overlay.bossSegments[index]
+		if not segment then
+			segment = overlay:CreateTexture(nil, "OVERLAY", nil, 2)
+			overlay.bossSegments[index] = segment
+		end
+
+		segment:Show()
+		segment:ClearAllPoints()
+		segment:SetPoint("TOPLEFT", overlay, "TOPLEFT", segInfo.left - data.left, -(segInfo.top - data.top))
+		segment:SetSize(segInfo.width, segInfo.height)
+	end
+
+	if #overlay.bossSegments > #data.segments then
+		for index = #data.segments + 1, #overlay.bossSegments do
+			overlay.bossSegments[index]:Hide()
+		end
+	end
+
+	local color = overlay.overlayColor
+	if color then
+		ApplyOverlayColorTextures(overlay, color.r, color.g, color.b, color.a)
+	else
+		ApplyOverlayColorTextures(overlay, 0, 1, 0, 0.5)
+	end
+end
+
+UpdateOverlayForFrame = function(frameName)
+	local overlay = frameOverlays[frameName]
+	if not overlay or overlay.isDragging then
+		return
+	end
+
+	local frame = _G[frameName]
+	if not frame then
+		return
+	end
+
+	if frameName == "UFI_BossFrameAnchor" then
+		UpdateBossOverlayGeometry(frame, overlay)
+	else
+		UpdateStandardOverlayGeometry(frame, overlay)
+	end
+end
+
+local function OverlayOffsetsToFrameOffsets(overlay, point, x, y)
+	if not overlay then
+		return x or 0, y or 0
+	end
+
+	local frame = overlay.secureFrame
+	if not frame then
+		return x or 0, y or 0
+	end
+
+	point = point or "TOPLEFT"
+
+	local frameWidth = frame:GetWidth()
+	local frameHeight = frame:GetHeight()
+	if not frameWidth or not frameHeight or frameWidth == 0 or frameHeight == 0 then
+		return x or 0, y or 0
+	end
+
+	local rect = overlay.clickInsets
+	local leftInset = rect and rect.left or 0
+	local topInset = rect and rect.top or 0
+
+	local overlayWidth = overlay:GetWidth()
+	local overlayHeight = overlay:GetHeight()
+	local anchorXOffset, anchorYOffset =
+		ComputeAnchorOffsets(point, frameWidth, frameHeight, overlayWidth, overlayHeight, leftInset, topInset)
+
+	return (x or 0) - anchorXOffset, (y or 0) - anchorYOffset
 end
 
 -- Create overlay for a frame
@@ -715,18 +1226,10 @@ local function CreateOverlay(frame, frameName)
 	overlay:SetClampedToScreen(true)
 	overlay:Hide()
 
-	-- Match frame's size and position exactly
-	overlay:SetSize(frame:GetWidth(), frame:GetHeight())
-	overlay:SetScale(frame:GetScale())
-	local point, relativeTo, relativePoint, x, y = frame:GetPoint()
-	overlay:SetPoint(point, relativeTo, relativePoint, x, y)
-
-	-- Visual border
 	overlay.border = overlay:CreateTexture(nil, "OVERLAY")
 	overlay.border:SetAllPoints()
-	overlay.border:SetColorTexture(0, 1, 0, 0.5)
+	SetOverlayColor(overlay, 0, 1, 0, 0.5)
 
-	-- Label
 	overlay.label = overlay:CreateFontString(nil, "OVERLAY")
 	overlay.label:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
 	overlay.label:SetPoint("CENTER")
@@ -736,141 +1239,143 @@ local function CreateOverlay(frame, frameName)
 	end
 	overlay.label:SetText(displayName)
 
-	-- Store frame reference
 	overlay.secureFrame = frame
 	overlay.isDragging = false
-	overlay.dragStartX = 0
-	overlay.dragStartY = 0
+	overlay.dragStartLeft = 0
+	overlay.dragStartTop = 0
 
-	-- Mouse down - prepare for drag
+	frameOverlays[frameName] = overlay
+
+	if frame and not frame.UFIOverlayHooks then
+		frame.UFIOverlayHooks = true
+		local nameRef = frameName
+		hooksecurefunc(frame, "SetPoint", function()
+			UpdateOverlayForFrame(nameRef)
+		end)
+		hooksecurefunc(frame, "SetSize", function()
+			UpdateOverlayForFrame(nameRef)
+		end)
+		hooksecurefunc(frame, "SetWidth", function()
+			UpdateOverlayForFrame(nameRef)
+		end)
+		hooksecurefunc(frame, "SetHeight", function()
+			UpdateOverlayForFrame(nameRef)
+		end)
+		hooksecurefunc(frame, "SetScale", function()
+			UpdateOverlayForFrame(nameRef)
+		end)
+	end
+	UpdateOverlayForFrame(frameName)
+
+	local function FinishOverlayDrag(self, attemptApply)
+		self:SetFrameLevel(100)
+
+		local point, relativeToFrame, relativePoint, x, y = self:GetPoint()
+		point = point or "TOPLEFT"
+		relativePoint = relativePoint or point
+
+		local frameX, frameY = OverlayOffsetsToFrameOffsets(self, point, x, y)
+		local relativeToName
+		if relativeToFrame then
+			relativeToName = relativeToFrame:GetName()
+			if not relativeToName and relativeToFrame == UIParent then
+				relativeToName = "UIParent"
+			end
+		else
+			relativeToName = "UIParent"
+		end
+
+		unsavedPositions[frameName] = {
+			point = point,
+			relativePoint = relativePoint,
+			x = frameX,
+			y = frameY,
+			relativeTo = relativeToName,
+		}
+
+		if not attemptApply then
+			SetOverlayColor(self, 0, 1, 0, 0.5)
+			UpdateOverlayForFrame(frameName)
+			return
+		end
+
+		if CanRepositionFrames() then
+			local frame = self.secureFrame
+			if frame then
+				frame:ClearAllPoints()
+				local relativeFrame = relativeToFrame
+				if not relativeFrame then
+					if relativeToName and relativeToName ~= "UIParent" then
+						relativeFrame = _G[relativeToName]
+					else
+						relativeFrame = UIParent
+					end
+				end
+				relativeFrame = relativeFrame or UIParent
+				frame:SetPoint(point, relativeFrame, relativePoint, frameX, frameY)
+			end
+			pendingPositions[frameName] = nil
+			SetOverlayColor(self, 0, 1, 0, 0.5)
+			UpdateOverlayForFrame(frameName)
+		else
+			pendingPositions[frameName] = true
+			SetOverlayColor(self, 1, 0.5, 0, 0.5)
+		end
+	end
+
+	local function CompleteOverlayDrag(self)
+		self:StopMovingOrSizing()
+		local endLeft = self:GetLeft() or 0
+		local endTop = self:GetTop() or 0
+		local moved = math.abs(endLeft - (self.dragStartLeft or endLeft)) >= 0.5
+			or math.abs(endTop - (self.dragStartTop or endTop)) >= 0.5
+
+		self.isDragging = false
+
+		if not moved then
+			self:SetFrameLevel(100)
+			SetOverlayColor(self, 0, 1, 0, 0.5)
+			UpdateOverlayForFrame(frameName)
+			return
+		end
+
+		FinishOverlayDrag(self, true)
+	end
+
 	overlay:SetScript("OnMouseDown", function(self, button)
 		if button == "LeftButton" and isUnlocked then
 			self.isDragging = true
-			self.dragStartX, self.dragStartY = GetCursorPosition()
-			local scale = self:GetEffectiveScale()
-			self.dragStartX = self.dragStartX / scale
-			self.dragStartY = self.dragStartY / scale
-
-			local _, _, _, x, y = self:GetPoint()
-			self.startX = x
-			self.startY = y
-
-			-- Visual feedback
+			self.dragStartLeft = self:GetLeft() or 0
+			self.dragStartTop = self:GetTop() or 0
 			self:SetFrameLevel(110)
-			self.border:SetColorTexture(1, 1, 0, 0.7) -- Yellow while dragging
+			SetOverlayColor(self, 1, 1, 0, 0.7)
+			self:StartMoving()
 		end
 	end)
 
-	-- Mouse up - finish drag
 	overlay:SetScript("OnMouseUp", function(self, button)
 		if button == "LeftButton" and self.isDragging then
-			self.isDragging = false
-
-			-- Reset frame level
-			self:SetFrameLevel(100)
-			self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
-
-			-- Get new position from overlay
-			local point, relativeToFrame, relativePoint, x, y = self:GetPoint()
-			local relativeToName
-			if relativeToFrame then
-				relativeToName = relativeToFrame:GetName()
-				if not relativeToName and relativeToFrame == UIParent then
-					relativeToName = "UIParent"
-				end
-			end
-
-			SavePosition(frameName, point, relativePoint, x, y, relativeToName)
-
-			-- Try to apply to actual frame
-			if CanRepositionFrames() then
-				frame:ClearAllPoints()
-				local relativeFrame = relativeToFrame or UIParent
-				if relativeToName and not relativeToFrame then
-					relativeFrame = _G[relativeToName] or UIParent
-				end
-				frame:SetPoint(point, relativeFrame, relativePoint, x, y)
-				Print(frameName:gsub("UFI_", "") .. " position updated!")
-			else
-				pendingPositions[frameName] = true
-				self.border:SetColorTexture(1, 0.5, 0, 0.5) -- Orange for pending
-				Print(frameName:gsub("UFI_", "") .. " position saved! Will apply after combat.")
-			end
+			CompleteOverlayDrag(self)
 		end
 	end)
 
-	-- Update position while dragging
-	overlay:SetScript("OnUpdate", function(self)
+	overlay:SetScript("OnDragStop", function(self)
 		if self.isDragging then
-			-- Check if mouse button is still down
-			if not IsMouseButtonDown("LeftButton") then
-				-- Mouse was released, finish the drag
-				self.isDragging = false
-
-				-- Reset frame level
-				self:SetFrameLevel(100)
-				self.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
-
-				-- Get new position from overlay
-				local point, relativeToFrame, relativePoint, x, y = self:GetPoint()
-				local relativeToName
-				if relativeToFrame then
-					relativeToName = relativeToFrame:GetName()
-					if not relativeToName and relativeToFrame == UIParent then
-						relativeToName = "UIParent"
-					end
-				end
-
-				SavePosition(frameName, point, relativePoint, x, y, relativeToName)
-
-				-- Try to apply to actual frame
-				if CanRepositionFrames() then
-					frame:ClearAllPoints()
-					local relativeFrame = relativeToFrame or UIParent
-					if relativeToName and not relativeToFrame then
-						relativeFrame = _G[relativeToName] or UIParent
-					end
-					frame:SetPoint(point, relativeFrame, relativePoint, x, y)
-					Print(frameName:gsub("UFI_", "") .. " position updated!")
-				else
-					pendingPositions[frameName] = true
-					self.border:SetColorTexture(1, 0.5, 0, 0.5) -- Orange for pending
-					Print(frameName:gsub("UFI_", "") .. " position saved! Will apply after combat.")
-				end
-				return
-			end
-
-			local cursorX, cursorY = GetCursorPosition()
-			local scale = self:GetEffectiveScale()
-			cursorX = cursorX / scale
-			cursorY = cursorY / scale
-
-			local deltaX = cursorX - self.dragStartX
-			local deltaY = cursorY - self.dragStartY
-
-			local newX = self.startX + deltaX
-			local newY = self.startY + deltaY
-
-			self:ClearAllPoints()
-			self:SetPoint("TOPLEFT", UIParent, "TOPLEFT", newX, newY)
+			CompleteOverlayDrag(self)
 		end
 	end)
 
-	-- Mouse enter/leave for better visual feedback
 	overlay:SetScript("OnEnter", function(self)
 		if isUnlocked and not self.isDragging then
-			self.border:SetColorTexture(0.5, 1, 0.5, 0.7) -- Brighter green on hover
+			SetOverlayColor(self, 0.5, 1, 0.5, 0.7)
 		end
 	end)
 
 	overlay:SetScript("OnLeave", function(self)
 		if isUnlocked and not self.isDragging then
-			self.border:SetColorTexture(0, 1, 0, 0.5) -- Normal green
+			SetOverlayColor(self, 0, 1, 0, 0.5)
 		end
 	end)
-
-	-- Store reference
-	frameOverlays[frameName] = overlay
 
 	return overlay
 end
@@ -886,9 +1391,10 @@ local function UnlockFrames()
 	UnitFramesImprovedDB.isUnlocked = true
 
 	for frameName, overlay in pairs(frameOverlays) do
+		UpdateOverlayForFrame(frameName)
 		overlay:Show()
 		overlay:EnableMouse(true)
-		overlay.border:SetColorTexture(0, 1, 0, 0.5) -- Green for unlocked
+		SetOverlayColor(overlay, 0, 1, 0, 0.5) -- Green for unlocked
 	end
 
 	Print("Frames unlocked! Drag to reposition. Type /ufi lock to save.")
@@ -896,6 +1402,14 @@ end
 
 -- Lock frames and save positions
 local function LockFrames()
+	for frameName, pos in pairs(unsavedPositions) do
+		SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y, pos.relativeTo)
+	end
+	if next(unsavedPositions) then
+		Print("Stored frame positions. Unlock again to make further adjustments.")
+	end
+	table.wipe(unsavedPositions)
+
 	isUnlocked = false
 	UnitFramesImprovedDB.isUnlocked = false
 
@@ -920,8 +1434,11 @@ local function OnCombatStart()
 		-- Disable dragging during combat
 		for _, overlay in pairs(frameOverlays) do
 			overlay:EnableMouse(false)
-			overlay.border:SetColorTexture(1, 0, 0, 0.5) -- Red for locked
-			overlay.label:SetText(overlay.label:GetText() .. " (COMBAT)")
+			SetOverlayColor(overlay, 1, 0, 0, 0.5) -- Red for locked
+			local labelText = overlay.label:GetText() or ""
+			if not labelText:find(" %(COMBAT%)$") then
+				overlay.label:SetText(labelText .. " (COMBAT)")
+			end
 		end
 		Print("|cffff8800Frame movement disabled during combat!|r")
 	end
@@ -938,8 +1455,8 @@ local function OnCombatEnd()
 	if isUnlocked then
 		for _, overlay in pairs(frameOverlays) do
 			overlay:EnableMouse(true)
-			overlay.border:SetColorTexture(0, 1, 0, 0.5) -- Back to green
-			overlay.label:SetText(overlay.label:GetText():gsub(" %(COMBAT%)", ""))
+			SetOverlayColor(overlay, 0, 1, 0, 0.5) -- Back to green
+			overlay.label:SetText((overlay.label:GetText() or ""):gsub(" %(COMBAT%)$", ""))
 		end
 		Print("Frame movement re-enabled!")
 	end
@@ -1005,47 +1522,24 @@ end
 -------------------------------------------------------------------------------
 
 local function CreatePlayerFrame()
-	-- Main frame container (Button for secure click handling)
+	local mirrored = true
 	local frame = CreateFrame("Button", "UFI_PlayerFrame", UIParent, "SecureUnitButtonTemplate")
-	frame:SetSize(232, 100)
-	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4) -- Default Blizzard PlayerFrame position
+	frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
 	frame:SetFrameStrata("LOW")
-	frame:SetScale(1.15) -- Slightly larger than default
-	ApplyFrameHitRect(frame, true)
+	frame:SetFrameLevel(20)
+	frame.mirrored = mirrored
+
+	ApplyFrameHitRect(frame, mirrored)
+	InitializeFramePosition("UFI_PlayerFrame", frame)
 
 	local visual = CreateFrame("Frame", nil, frame)
 	visual:SetAllPoints(frame)
 	visual:SetFrameStrata("LOW")
+	visual:SetFrameLevel(frame:GetFrameLevel())
 	frame.visualLayer = visual
 
-	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 97,
-		y = -20,
-	})
-
-	frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 97,
-		y = -46,
-	})
-
-	frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true })
-
-	frame.portrait = CreatePortrait(visual, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 68,
-		y = -38,
-	})
-	SetPortraitTexture(frame.portrait, "player")
-
-	frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.player, { mirror = true, subLevel = 5 })
+	frame.texture = CreateUnitArtTexture(visual, FRAME_TEXTURES.player, mirrored, "ARTWORK", 0)
+	frame.portraitMask = CreateUnitArtTexture(visual, FRAME_TEXTURES.player, mirrored, "ARTWORK", 5)
 	frame.portraitMask:SetBlendMode("BLEND")
 	frame.texture:SetVertexColor(
 		PLAYER_TEXTURE_COLORS.normal.r,
@@ -1059,86 +1553,84 @@ local function CreatePlayerFrame()
 	)
 	frame.currentVertexColor = PLAYER_TEXTURE_COLORS.normal
 
-	-- Level/Rest indicator text (displayed in the circular area at bottom left of portrait)
-	frame.levelText = CreateFontString(visual, {
-		point = "CENTER",
+	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
+	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
+
+	frame.portrait = CreatePortrait(visual, mirrored)
+	SetPortraitTexture(frame.portrait, "player")
+
+	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
+	local levelText = CreateFontString(visual, {
+		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
-		x = 48,
-		y = -56,
-		size = 8,
+		x = levelX,
+		y = -levelY,
+		size = 12,
 		flags = "OUTLINE",
 		drawLayer = 0,
 		color = { r = 1, g = 0.82, b = 0 },
 	})
-	frame.levelText:SetParent(visual)
+	levelText:SetSize(levelWidth, levelHeight)
+	levelText:SetJustifyH("CENTER")
+	levelText:SetJustifyV("MIDDLE")
+	frame.levelText = levelText
 
-	-- Unit name (OVERLAY layer - drawn on top of everything)
 	frame.nameText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 8,
+		size = 14,
 		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
 	frame.nameText:SetText(UnitName("player"))
 
-	-- Health text (OVERLAY layer - drawn on top of everything)
 	frame.healthText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = -6,
-		size = 7,
+		y = -10,
+		size = 12,
 		flags = "OUTLINE",
 		drawLayer = 7,
 		color = { r = 1, g = 1, b = 1 },
 	})
 	frame.healthText:SetText("")
 
-	-- Power text (OVERLAY layer - drawn on top of everything)
-	-- Must be child of main frame, not powerBar, to render above frame texture
-	frame.powerText = CreateFontString(visual, {
+	frame.powerText = CreateFontString(frame.powerBar, {
 		point = "CENTER",
 		relativeTo = frame.powerBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = 1,
-		size = 6,
+		y = 0,
+		size = 11,
 		flags = "OUTLINE",
 		drawLayer = 7,
 		color = { r = 1, g = 1, b = 1 },
 	})
 	frame.powerText:SetText("")
 
+	local selfBuffLevel = math.max((visual:GetFrameLevel() or 1) - 1, 0)
 	frame.selfBuffs = CreateAuraRow(frame, {
+		parent = visual,
+		mirrored = mirrored,
 		count = 5,
-		size = 20,
-		spacing = 2,
-		anchor = {
-			point = "BOTTOMLEFT",
-			relativeTo = frame.healthBar,
-			relativePoint = "TOPLEFT",
-			x = 2,
-			y = 4,
-		},
+		position = "above",
+		order = 1,
+		frameStrata = "LOW",
+		frameLevel = selfBuffLevel,
 	})
-	for i = 1, #frame.selfBuffs do
-		frame.selfBuffs[i]:SetParent(visual)
-	end
 	for i = 1, #frame.selfBuffs do
 		frame.selfBuffs[i].border:SetVertexColor(1, 1, 1)
 	end
 
-	-- Enable mouse clicks and set up secure click handling
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
-	-- Create custom dropdown menu via shared helper
 	local dropdown = CreateUnitInteractionDropdown("player", "UFI_PlayerFrameDropDown", {
 		fallbackTitle = PLAYER or "Player",
 		level1Builder = function(level, unitId, addButton, defaultTitle)
@@ -1284,53 +1776,105 @@ local CASTBAR_STATE = {
 
 local castBarsByUnit = {}
 
-local function CreateCastBar(parent, unit, options)
-	options = options or {}
+local function CreateCastBar(parent, unit, mirrored)
+	mirrored = not not mirrored
+	local healthX, _, healthWidth = LayoutResolveRect(UFI_LAYOUT.Health, mirrored)
+	local width = healthWidth
+	local widthScale = width / UFI_LAYOUT.CastBar.DefaultWidth
+	local height =
+		math.max(UFI_LAYOUT.CastBar.DefaultHeight, math.floor(UFI_LAYOUT.CastBar.DefaultHeight * widthScale + 0.5))
+	local offsetY = UFI_LAYOUT.CastBar.OffsetY
+	local anchorPoint
+	local anchorX
+
+	if mirrored then
+		anchorPoint = "TOPRIGHT"
+		anchorX = healthX + width
+	else
+		anchorPoint = "TOPLEFT"
+		anchorX = healthX
+	end
 
 	local castBar = CreateFrame("StatusBar", nil, parent)
-	castBar:SetSize(options.width or 148, options.height or 12)
-	local anchor = options.anchor or { point = "TOP", relativeTo = parent, relativePoint = "BOTTOM", x = 0, y = -6 }
-	castBar:SetPoint(
-		anchor.point,
-		anchor.relativeTo or parent,
-		anchor.relativePoint or anchor.point,
-		anchor.x or 0,
-		anchor.y or -6
-	)
-	castBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	castBar:GetStatusBarTexture():SetHorizTile(false)
-	castBar:GetStatusBarTexture():SetVertTile(false)
+	castBar:SetSize(width, height)
+	castBar:SetPoint(anchorPoint, parent, "BOTTOMLEFT", anchorX, -offsetY)
+	castBar:SetFrameLevel((parent:GetFrameLevel() or 0) + 10)
+	castBar:SetStatusBarTexture(STATUSBAR_TEXTURE)
+	local fill = castBar:GetStatusBarTexture()
+	fill:SetHorizTile(false)
+	fill:SetVertTile(false)
+	local fillCoords = UFI_LAYOUT.CastBar.Fill
+	local texSize = UFI_LAYOUT.CastBar.TextureSize
+	local left = fillCoords.x / texSize.width
+	local right = (fillCoords.x + fillCoords.width) / texSize.width
+	local top = fillCoords.y / texSize.height
+	local bottom = (fillCoords.y + fillCoords.height) / texSize.height
+	fill:SetTexCoord(left, right, top, bottom)
 	castBar:SetMinMaxValues(0, 1)
 	castBar:SetValue(0)
 	castBar:Hide()
 
 	local bg = castBar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.5)
+	bg:SetColorTexture(0, 0, 0, 0.65)
 	bg:SetAllPoints(castBar)
 
-	local border = castBar:CreateTexture(nil, "OVERLAY")
+	-- Restore decorative border with proportional scaling so it still hugs the bar
+	local borderWidth = math.floor(width * (195 / 148) + 0.5)
+	local borderHeight = math.floor(height * (50 / 12) + 0.5)
+	local borderOffsetY = math.floor(height * (20 / 12) + 0.5)
+	local border = castBar:CreateTexture(nil, "OVERLAY", nil, 1)
 	border:SetTexture("Interface\\CastingBar\\UI-CastingBar-Border-Small")
-	border:SetSize(195, 50)
-	border:SetPoint("TOP", castBar, "TOP", 0, 20)
+	border:SetSize(borderWidth, borderHeight)
+	border:SetPoint("TOP", castBar, "TOP", 0, borderOffsetY)
+	castBar.border = border
 
 	local text = castBar:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	text:SetPoint("LEFT", castBar, "LEFT", 2, 1)
+	text:SetFont(FONT_DEFAULT, math.max(10, math.floor(height * 0.65)), "OUTLINE")
 	text:SetTextColor(1, 1, 1)
+	text:SetJustifyH("LEFT")
+	text:SetJustifyV("MIDDLE")
+	text:SetWordWrap(false)
+	text:ClearAllPoints()
+	text:SetPoint("LEFT", castBar, "LEFT", 4, 2)
+	text:SetPoint("TOP", castBar, "TOP", 0, 2)
+	text:SetPoint("BOTTOM", castBar, "BOTTOM", 0, 2)
 	castBar.text = text
 
 	local time = castBar:CreateFontString(nil, "OVERLAY")
-	time:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	time:SetPoint("RIGHT", castBar, "RIGHT", -2, 1)
+	time:SetFont(FONT_DEFAULT, math.max(10, math.floor(height * 0.65)), "OUTLINE")
 	time:SetTextColor(1, 1, 1)
+	time:SetJustifyH("RIGHT")
+	time:SetJustifyV("MIDDLE")
+	time:SetWordWrap(false)
+	time:ClearAllPoints()
+	time:SetPoint("RIGHT", castBar, "RIGHT", -4, 2)
+	time:SetPoint("TOP", castBar, "TOP", 0, 2)
+	time:SetPoint("BOTTOM", castBar, "BOTTOM", 0, 2)
 	castBar.time = time
 
+	text:SetPoint("RIGHT", time, "LEFT", -6, 0)
+
 	local icon = castBar:CreateTexture(nil, "OVERLAY")
-	icon:SetSize(16, 16)
-	icon:SetPoint("RIGHT", castBar, "LEFT", options.iconOffsetX or -5, options.iconOffsetY or 0)
+	local iconSize = 30
+	icon:SetSize(iconSize, iconSize)
+	if mirrored then
+		icon:SetPoint("LEFT", castBar, "RIGHT", 4, 0)
+	else
+		icon:SetPoint("RIGHT", castBar, "LEFT", -4, 0)
+	end
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	castBar.icon = icon
 
+	local iconBorder = castBar:CreateTexture(nil, "OVERLAY", nil, 1)
+	iconBorder:SetPoint("CENTER", icon, "CENTER", 0, 0)
+	iconBorder:SetSize(34, 34)
+	iconBorder:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+	iconBorder:SetTexCoord(39 / 128, (39 + 34) / 128, 0 / 64, 34 / 64)
+	castBar.iconBorder = iconBorder
+	iconBorder:Hide()
+
 	castBar.unit = unit
+	castBar.mirrored = mirrored
 	castBar.state = CASTBAR_STATE.HIDDEN
 	castBar.startTime = 0
 	castBar.endTime = 0
@@ -1438,6 +1982,9 @@ local function BeginCast(unit, isChannel)
 	castBar.text:SetText(name)
 	castBar.time:SetText("")
 	castBar.icon:SetTexture(texture)
+	if castBar.iconBorder then
+		castBar.iconBorder:Show()
+	end
 	castBar:SetStatusBarColor(1, 0.7, 0)
 	castBar:Show()
 	UpdateCastBar(castBar)
@@ -1511,6 +2058,9 @@ local function HideCastBar(unit)
 	castBar.text:SetText("")
 	castBar.time:SetText("")
 	castBar.icon:SetTexture(nil)
+	if castBar.iconBorder then
+		castBar.iconBorder:Hide()
+	end
 	castBar.notInterruptible = false
 end
 
@@ -1529,152 +2079,103 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateTargetFrame()
-	-- Main frame container (Button for secure click handling and menu support)
+	local mirrored = false
 	local frame = CreateFrame("Button", "UFI_TargetFrame", UIParent, "SecureUnitButtonTemplate")
-	frame:SetSize(232, 100)
-	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -4) -- Default Blizzard TargetFrame position
-	frame:SetFrameStrata("LOW")
-	frame:SetScale(1.15)
-	ApplyFrameHitRect(frame, false)
 
-	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
+	InitializeFramePosition("UFI_TargetFrame", frame)
+
+	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
+	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
+
+	frame.portrait = CreatePortrait(visual, mirrored)
+
+	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
+	local levelText = CreateFontString(visual, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
-		x = 27,
-		y = -20,
-	})
-
-	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 27,
-		y = -46,
-	})
-
-	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default)
-
-	frame.portrait = CreatePortrait(frame, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 164,
-		y = -38,
-	})
-
-	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.default, { subLevel = 5 })
-	frame.portraitMask:SetBlendMode("BLEND")
-
-	frame.eliteTexture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { layer = "OVERLAY" })
-	frame.eliteTexture:Hide()
-
-	frame.levelText = CreateFontString(frame, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 184,
-		y = -56,
-		size = 8,
+		x = levelX,
+		y = -levelY,
+		size = 12,
 		flags = "OUTLINE",
 		color = { r = 1, g = 0.82, b = 0 },
 		drawLayer = 0,
 	})
+	levelText:SetSize(levelWidth, levelHeight)
+	levelText:SetJustifyH("CENTER")
+	levelText:SetJustifyV("MIDDLE")
+	frame.levelText = levelText
 
-	frame.nameText = CreateFontString(frame, {
+	frame.nameText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 8,
+		size = 14,
 		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
-	frame.nameText:SetText("")
 
-	frame.healthText = CreateFontString(frame, {
+	frame.healthText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = -6,
-		size = 7,
+		y = -10,
+		size = 12,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
 	})
-	frame.healthText:SetText("")
 
-	frame.powerText = CreateFontString(frame, {
+	frame.powerText = CreateFontString(frame.powerBar, {
 		point = "CENTER",
 		relativeTo = frame.powerBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = 1,
-		size = 6,
+		y = 0,
+		size = 11,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
 	})
-	frame.powerText:SetText("")
 
-	-- Dead text overlay
-	frame.deadText = CreateFontString(frame, {
+	frame.deadText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = -5,
+		y = -4,
 		size = 12,
 		flags = "OUTLINE",
 		color = { r = 0.5, g = 0.5, b = 0.5 },
 		drawLayer = 7,
 	})
-	frame.deadText:SetText("")
 	frame.deadText:Hide()
 
-	frame.castBar = CreateCastBar(frame, "target")
+	frame.eliteTexture = CreateUnitArtTexture(visual, FRAME_TEXTURES.default, mirrored, "OVERLAY", 1)
+	frame.eliteTexture:Hide()
+
+	frame.castBar = CreateCastBar(frame, "target", mirrored)
 
 	frame.buffs = CreateAuraRow(frame, {
+		parent = visual,
+		mirrored = mirrored,
 		count = 5,
-		size = 15,
-		spacing = 2,
-		anchor = {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "BOTTOMLEFT",
-			x = 28,
-			y = 40,
-		},
+		position = "below",
+		order = 1,
 	})
-
-	frame.debuffRowAnchors = {
-		withBuffs = {
-			point = "TOPLEFT",
-			relativeTo = frame.buffs[1],
-			relativePoint = "BOTTOMLEFT",
-			x = 0,
-			y = -1,
-		},
-		withoutBuffs = {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "BOTTOMLEFT",
-			x = 28,
-			y = 41,
-		},
-		current = "withBuffs",
-	}
 
 	frame.debuffs = CreateAuraRow(frame, {
+		parent = visual,
+		mirrored = mirrored,
 		count = 5,
-		size = 20,
-		spacing = 2,
-		anchor = frame.debuffRowAnchors.withBuffs,
+		position = "below",
+		order = 2,
 	})
 
-	-- Enable mouse clicks and set up secure click handling
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
@@ -1692,7 +2193,6 @@ local function CreateTargetFrame()
 		end
 	end)
 
-	-- Use RegisterStateDriver for secure show/hide based on target existence
 	RegisterStateDriver(frame, "visibility", "[exists] show; hide")
 
 	return frame
@@ -1703,153 +2203,102 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateFocusFrame()
-	-- Main frame container (Button for secure click handling)
+	local mirrored = false
 	local frame = CreateFrame("Button", "UFI_FocusFrame", UIParent, "SecureUnitButtonTemplate")
-	frame:SetSize(232, 100)
 
-	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 250, -250) -- Default Blizzard FocusFrame position
-	frame:SetFrameStrata("LOW")
-	frame:SetScale(1.15)
-	ApplyFrameHitRect(frame, false)
+	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
+	InitializeFramePosition("UFI_FocusFrame", frame)
 
-	frame.healthBar = CreateStatusBar(frame, { width = 108, height = 24 }, {
+	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
+	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
+
+	frame.portrait = CreatePortrait(visual, mirrored)
+
+	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
+	local levelText = CreateFontString(visual, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
-		x = 27,
-		y = -20,
-	})
-
-	frame.powerBar = CreateStatusBar(frame, { width = 108, height = 9 }, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 27,
-		y = -46,
-	})
-
-	frame.texture = AttachFrameTexture(frame, FRAME_TEXTURES.default)
-
-	frame.portrait = CreatePortrait(frame, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 164,
-		y = -38,
-	})
-
-	frame.portraitMask = AttachFrameTexture(frame, FRAME_TEXTURES.default, { subLevel = 5 })
-	frame.portraitMask:SetBlendMode("BLEND")
-
-	frame.eliteTexture = AttachFrameTexture(frame, FRAME_TEXTURES.default, { layer = "OVERLAY" })
-	frame.eliteTexture:Hide()
-
-	frame.levelText = CreateFontString(frame, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 184,
-		y = -56,
-		size = 8,
+		x = levelX,
+		y = -levelY,
+		size = 12,
 		flags = "OUTLINE",
 		color = { r = 1, g = 0.82, b = 0 },
 		drawLayer = 0,
 	})
+	levelText:SetSize(levelWidth, levelHeight)
+	levelText:SetJustifyH("CENTER")
+	levelText:SetJustifyV("MIDDLE")
+	frame.levelText = levelText
 
-	frame.nameText = CreateFontString(frame, {
+	frame.nameText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
 		y = 6,
-		size = 8,
+		size = 14,
 		flags = "THICKOUTLINE",
 		drawLayer = 7,
 	})
-	frame.nameText:SetText("")
 
-	frame.healthText = CreateFontString(frame, {
+	frame.healthText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = -6,
-		size = 7,
+		y = -10,
+		size = 12,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
 	})
-	frame.healthText:SetText("")
 
-	frame.powerText = CreateFontString(frame, {
+	frame.powerText = CreateFontString(frame.powerBar, {
 		point = "CENTER",
 		relativeTo = frame.powerBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = 1,
-		size = 6,
+		y = 0,
+		size = 11,
 		flags = "OUTLINE",
 		color = { r = 1, g = 1, b = 1 },
 		drawLayer = 7,
 	})
-	frame.powerText:SetText("")
 
-	-- Dead text overlay
-	frame.deadText = CreateFontString(frame, {
+	frame.deadText = CreateFontString(frame.healthBar, {
 		point = "CENTER",
 		relativeTo = frame.healthBar,
 		relativePoint = "CENTER",
 		x = 0,
-		y = -5,
+		y = -4,
 		size = 12,
 		flags = "OUTLINE",
 		color = { r = 0.5, g = 0.5, b = 0.5 },
 		drawLayer = 7,
 	})
-	frame.deadText:SetText("")
 	frame.deadText:Hide()
 
-	frame.castBar = CreateCastBar(frame, "focus")
+	frame.eliteTexture = CreateUnitArtTexture(visual, FRAME_TEXTURES.default, mirrored, "OVERLAY", 1)
+	frame.eliteTexture:Hide()
+
+	frame.castBar = CreateCastBar(frame, "focus", mirrored)
 
 	frame.buffs = CreateAuraRow(frame, {
+		parent = visual,
+		mirrored = mirrored,
 		count = 5,
-		size = 15,
-		spacing = 2,
-		anchor = {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "BOTTOMLEFT",
-			x = 28,
-			y = 40,
-		},
+		position = "below",
+		order = 1,
 	})
-
-	frame.debuffRowAnchors = {
-		withBuffs = {
-			point = "TOPLEFT",
-			relativeTo = frame.buffs[1],
-			relativePoint = "BOTTOMLEFT",
-			x = 0,
-			y = -2,
-		},
-		withoutBuffs = {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "BOTTOMLEFT",
-			x = 28,
-			y = 40,
-		},
-		current = "withBuffs",
-	}
-
 	frame.debuffs = CreateAuraRow(frame, {
+		parent = visual,
+		mirrored = mirrored,
 		count = 5,
-		size = 20,
-		spacing = 2,
-		anchor = frame.debuffRowAnchors.withBuffs,
+		position = "below",
+		order = 2,
 	})
 
-	-- Enable mouse clicks
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
@@ -1871,79 +2320,56 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateTargetOfTargetFrame()
-	-- Main frame container - SAME SIZE as player frame, will scale down (Button for secure click handling)
+	local mirrored = true
 	local frame = CreateFrame("Button", "UFI_TargetOfTargetFrame", UIParent, "SecureUnitButtonTemplate")
-	frame:SetSize(232, 100) -- Same as player frame
-	frame:SetPoint("TOP", UFI_TargetFrame, "BOTTOM", 100, 80) -- Below target portrait
+	local anchorFrame = UFI_TargetFrame or UIParent
 	frame:SetFrameStrata("LOW")
-	local baseFrameLevel = (UFI_TargetFrame and UFI_TargetFrame:GetFrameLevel() or 0) + 5
-	frame:SetFrameLevel(baseFrameLevel)
-	frame:SetScale(0.6) -- Scale to 50% (half size)
-	ApplyFrameHitRect(frame, true)
 
-	local visual = CreateFrame("Frame", nil, frame)
-	visual:SetAllPoints(frame)
-	visual:SetFrameStrata("LOW")
-	visual:SetFrameLevel(baseFrameLevel - 1)
-	frame.visualLayer = visual
+	local baseLevel = math.max((anchorFrame and anchorFrame:GetFrameLevel() or 0) + 15, 15)
+	frame:SetFrameLevel(baseLevel)
 
-	frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
+	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
+	visual:SetFrameLevel(baseLevel)
+	InitializeFramePosition("UFI_TargetOfTargetFrame", frame)
+
+	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
+	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
+
+	frame.portrait = CreatePortrait(visual, mirrored)
+
+	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
+	local levelText = CreateFontString(visual, {
 		point = "TOPLEFT",
 		relativeTo = frame,
 		relativePoint = "TOPLEFT",
-		x = 97,
-		y = -20,
-	})
-
-	frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 97,
-		y = -46,
-	})
-
-	frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.default, { mirror = true })
-
-	frame.portrait = CreatePortrait(visual, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 68,
-		y = -38,
-	})
-
-	frame.nameText = CreateFontString(visual, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 0,
-		size = 10,
-		flags = "THICKOUTLINE",
-		drawLayer = 7,
-	})
-	frame.nameText:SetText("")
-
-	frame.levelText = CreateFontString(visual, {
-		point = "CENTER",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = 48,
-		y = -56,
-		size = 8,
+		x = levelX,
+		y = -levelY,
+		size = 12,
 		flags = "OUTLINE",
 		color = { r = 1, g = 0.82, b = 0 },
 		drawLayer = 0,
 	})
+	levelText:SetSize(levelWidth, levelHeight)
+	levelText:SetJustifyH("CENTER")
+	levelText:SetJustifyV("MIDDLE")
+	frame.levelText = levelText
 
-	-- Enable mouse clicks
+	frame.nameText = CreateFontString(frame.healthBar, {
+		point = "CENTER",
+		relativeTo = frame.healthBar,
+		relativePoint = "CENTER",
+		x = 0,
+		y = 6,
+		size = 20,
+		flags = "THINOUTLINE",
+		drawLayer = 7,
+	})
+
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("AnyUp")
 
-	-- Set unit for secure click handling
 	frame:SetAttribute("unit", "targettarget")
-	frame:SetAttribute("type1", "target") -- Left click = target the unit
+	frame:SetAttribute("type1", "target")
 	RegisterUnitWatch(frame)
 
 	frame:Hide()
@@ -2144,25 +2570,18 @@ end
 
 local function CreateBossFrames()
 	local anchor = CreateFrame("Frame", "UFI_BossFrameAnchor", UIParent)
-	anchor:SetSize(232, (BOSS_FRAME_STRIDE * MAX_BOSS_FRAMES) + 30)
-	anchor:SetPoint(
-		defaultPositions.UFI_BossFrameAnchor.point,
-		UIParent,
-		defaultPositions.UFI_BossFrameAnchor.relativePoint,
-		defaultPositions.UFI_BossFrameAnchor.x,
-		defaultPositions.UFI_BossFrameAnchor.y
-	)
+	anchor:SetSize(UFI_LAYOUT.Art.width, (BOSS_FRAME_STRIDE * MAX_BOSS_FRAMES))
 	anchor:SetFrameStrata("LOW")
 	anchor.frames = {}
 	UFI_BossFrameAnchor = anchor
+	InitializeFramePosition("UFI_BossFrameAnchor", anchor)
 
 	for index = 1, MAX_BOSS_FRAMES do
 		local unit = "boss" .. index
 		local frame = CreateFrame("Button", "UFI_BossFrame" .. index, anchor, "SecureUnitButtonTemplate")
-		frame:SetSize(232, 100)
+		frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
 		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * BOSS_FRAME_STRIDE))
 		frame:SetFrameStrata("LOW")
-		frame:SetScale(0.95)
 		ApplyFrameHitRect(frame, false)
 		frame.unit = unit
 		frame:EnableMouse(true)
@@ -2173,52 +2592,31 @@ local function CreateBossFrames()
 		RegisterUnitWatch(frame)
 		frame:Hide()
 
-		local visual = CreateFrame("Frame", nil, frame)
-		visual:SetAllPoints(frame)
-		visual:SetFrameStrata("LOW")
-		frame.visualLayer = visual
+		frame:SetFrameLevel((anchor:GetFrameLevel() or 0) + index)
+		local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, false)
+		visual:SetFrameLevel(frame:GetFrameLevel())
 
-		frame.healthBar = CreateStatusBar(visual, { width = 108, height = 24 }, {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "TOPLEFT",
-			x = 27,
-			y = -20,
-		})
-
-		frame.powerBar = CreateStatusBar(visual, { width = 108, height = 9 }, {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "TOPLEFT",
-			x = 27,
-			y = -46,
-		})
-
-		frame.texture = AttachFrameTexture(visual, FRAME_TEXTURES.default)
-
-		frame.portrait = CreatePortrait(visual, {
-			point = "CENTER",
-			relativeTo = frame,
-			relativePoint = "TOPLEFT",
-			x = 164,
-			y = -38,
-		})
-
-		frame.portraitMask = AttachFrameTexture(visual, FRAME_TEXTURES.default, { subLevel = 5 })
-		frame.portraitMask:SetBlendMode("BLEND")
+		frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, false)
+		frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, false)
+		frame.portrait = CreatePortrait(visual, false)
 		frame.currentTexture = FRAME_TEXTURES.default
 
-		frame.levelText = CreateFontString(visual, {
-			point = "CENTER",
+		local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, false)
+		local levelText = CreateFontString(visual, {
+			point = "TOPLEFT",
 			relativeTo = frame,
 			relativePoint = "TOPLEFT",
-			x = 184,
-			y = -56,
-			size = 8,
+			x = levelX,
+			y = -levelY,
+			size = 12,
 			flags = "OUTLINE",
-			drawLayer = 0,
 			color = { r = 1, g = 0.82, b = 0 },
+			drawLayer = 0,
 		})
+		levelText:SetSize(levelWidth, levelHeight)
+		levelText:SetJustifyH("CENTER")
+		levelText:SetJustifyV("MIDDLE")
+		frame.levelText = levelText
 
 		frame.nameText = CreateFontString(frame.healthBar, {
 			point = "CENTER",
@@ -2226,7 +2624,7 @@ local function CreateBossFrames()
 			relativePoint = "CENTER",
 			x = 0,
 			y = 6,
-			size = 8,
+			size = 14,
 			flags = "THICKOUTLINE",
 			drawLayer = 7,
 		})
@@ -2236,37 +2634,26 @@ local function CreateBossFrames()
 			relativeTo = frame.healthBar,
 			relativePoint = "CENTER",
 			x = 0,
-			y = -6,
-			size = 7,
+			y = -10,
+			size = 12,
 			flags = "OUTLINE",
 			drawLayer = 7,
 			color = { r = 1, g = 1, b = 1 },
 		})
 
-		frame.powerText = CreateFontString(frame.visualLayer or visual, {
+		frame.powerText = CreateFontString(frame.powerBar, {
 			point = "CENTER",
 			relativeTo = frame.powerBar,
 			relativePoint = "CENTER",
 			x = 0,
-			y = 1,
-			size = 6,
+			y = 0,
+			size = 11,
 			flags = "OUTLINE",
 			drawLayer = 7,
 			color = { r = 1, g = 1, b = 1 },
 		})
 
-		frame.castBar = CreateCastBar(frame, unit, {
-			width = 148,
-			height = 12,
-			anchor = {
-				point = "TOP",
-				relativeTo = frame,
-				relativePoint = "BOTTOM",
-				x = 5,
-				y = 11,
-			},
-		})
-		frame.castBar.icon:SetPoint("RIGHT", frame.castBar, "LEFT", -4, 0)
+		frame.castBar = CreateCastBar(frame, unit, false)
 
 		frame:SetScript("OnShow", function(self)
 			if self.unit and UnitExists(self.unit) then
@@ -2352,6 +2739,10 @@ local function UpdatePlayerPower()
 	local power = UnitPower("player")
 	local maxPower = UnitPowerMax("player")
 	local powerType = UnitPowerType("player")
+
+	if not UFI_PlayerFrame.powerBar then
+		return
+	end
 
 	UFI_PlayerFrame.powerBar:SetMinMaxValues(0, maxPower)
 	UFI_PlayerFrame.powerBar:SetValue(power)
@@ -2627,12 +3018,20 @@ local function UpdateTargetOfTargetPower()
 	local maxPower = UnitPowerMax("targettarget")
 	local powerType = UnitPowerType("targettarget")
 
-	UFI_TargetOfTargetFrame.powerBar:SetMinMaxValues(0, maxPower)
-	UFI_TargetOfTargetFrame.powerBar:SetValue(power)
+	if UFI_TargetOfTargetFrame.powerBar then
+		if maxPower == 0 then
+			UFI_TargetOfTargetFrame.powerBar:SetMinMaxValues(0, 1)
+			UFI_TargetOfTargetFrame.powerBar:SetValue(0)
+			return
+		end
 
-	local info = PowerBarColor[powerType]
-	if info then
-		UFI_TargetOfTargetFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
+		UFI_TargetOfTargetFrame.powerBar:SetMinMaxValues(0, maxPower)
+		UFI_TargetOfTargetFrame.powerBar:SetValue(power)
+
+		local info = PowerBarColor[powerType]
+		if info then
+			UFI_TargetOfTargetFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
+		end
 	end
 end
 
@@ -2903,10 +3302,7 @@ local function UpdateUnitAuras(unit, frame)
 
 	if not UnitExists(unit) then
 		HideAuraRows(frame)
-		if frame.debuffRowAnchors and frame.debuffRowAnchors.current ~= "withBuffs" then
-			SetAuraRowAnchor(frame.debuffs, frame.debuffRowAnchors.withBuffs)
-			frame.debuffRowAnchors.current = "withBuffs"
-		end
+		PositionAuraRow(frame.debuffs, frame, frame.mirrored, "below", 1)
 		return
 	end
 
@@ -2985,12 +3381,9 @@ local function UpdateUnitAuras(unit, frame)
 
 	table.sort(playerDebuffs, SortByRemainingTime)
 
-	if frame.debuffRowAnchors then
-		local desired = buffsShown > 0 and "withBuffs" or "withoutBuffs"
-		if frame.debuffRowAnchors.current ~= desired then
-			SetAuraRowAnchor(frame.debuffs, frame.debuffRowAnchors[desired])
-			frame.debuffRowAnchors.current = desired
-		end
+	local desiredOrder = buffsShown > 0 and 2 or 1
+	if frame.debuffs and frame.debuffs.currentOrder ~= desiredOrder then
+		PositionAuraRow(frame.debuffs, frame, frame.mirrored, "below", desiredOrder)
 	end
 
 	if frame.debuffs then
@@ -3489,6 +3882,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			castBar.notInterruptible = true
 		end
 	elseif event == "PLAYER_LOGOUT" then
+		if isUnlocked then
+			return
+		end
+
 		-- Save all frame positions before logout
 		for frameName, _ in pairs(defaultPositions) do
 			local frame = _G[frameName]
