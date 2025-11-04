@@ -5,30 +5,162 @@
 	default frames to avoid taint issues while providing enhanced visuals.
 ]]
 
+-- Provide a predictable table wipe helper that survives sandboxed Lua environments.
+local table_wipe = rawget(table, "wipe") or function(tbl)
+	for key in pairs(tbl) do
+		tbl[key] = nil
+	end
+end
+
+-- Enforce immutability on configuration tables so other add-ons (or saved variable reloads)
+-- cannot mutate them and accidentally taint secure frames through unexpected writes.
+local function FreezeTable(tbl, label, seen)
+	if type(tbl) ~= "table" then
+		return tbl
+	end
+
+	seen = seen or {}
+	if seen[tbl] then
+		return tbl
+	end
+	seen[tbl] = true
+
+	for key, value in pairs(tbl) do
+		if type(value) == "table" then
+			local childLabel
+			if type(key) == "string" then
+				childLabel = label and (label .. "." .. key) or key
+			else
+				childLabel = label
+			end
+			FreezeTable(value, childLabel, seen)
+		end
+	end
+
+	local message
+	if label then
+		message = "Attempt to modify read-only table '" .. label .. "'"
+	else
+		message = "Attempt to modify read-only table"
+	end
+
+	return setmetatable(tbl, {
+		__metatable = false,
+		__newindex = function()
+			error(message, 2)
+		end,
+	})
+end
+
 -------------------------------------------------------------------------------
 -- ADDON INITIALIZATION
 -------------------------------------------------------------------------------
 
--- Frame references (global for debugging)
+-- Frame references are kept global so the in-game `/dump` command can inspect them.
 UFI_PlayerFrame = nil
 
--- Pixel-perfect layout definitions (shared by all unit frames)
-local UFI_LAYOUT = {
-	TextureSize = { width = 512, height = 256 },
-	Art = { x = 52, y = 0, width = 460, height = 200 },
-	Click = { x = 56, y = 42, width = 372, height = 87 },
-	Health = { x = 60, y = 46, width = 238, height = 58 },
-	Power = { x = 60, y = 106, width = 236, height = 20 },
-	Portrait = { x = 305, y = 31, width = 116, height = 116 },
-	LevelRest = { x = 386, y = 112, width = 39, height = 39 },
-	CastBar = {
-		TextureSize = { width = 128, height = 16 },
-		Fill = { x = 3, y = 3, width = 122, height = 10 },
-		OffsetY = 50,
-		DefaultWidth = 122,
-		DefaultHeight = 10,
-	},
-}
+local Layout = (function()
+	local layout = {}
+
+	layout.DATA = {
+		TextureSize = { width = 512, height = 256 },
+		Art = { x = 52, y = 0, width = 460, height = 200 },
+		Click = { x = 56, y = 42, width = 372, height = 87 },
+		Health = { x = 60, y = 46, width = 238, height = 58 },
+		Power = { x = 60, y = 106, width = 236, height = 20 },
+		Portrait = { x = 305, y = 31, width = 116, height = 116 },
+		LevelRest = { x = 386, y = 112, width = 39, height = 39 },
+		CastBar = {
+			TextureSize = { width = 128, height = 16 },
+			Fill = { x = 3, y = 3, width = 122, height = 10 },
+			OffsetY = 50,
+			DefaultWidth = 122,
+			DefaultHeight = 10,
+		},
+	}
+
+	layout.AURA_ICON_SPACING = 4
+	layout.AURA_ROW_VERTICAL_SPACING = 6
+	layout.AURA_HITRECT_PADDING = 5
+
+	layout.STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+	layout.FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
+
+	layout.DEFAULT_BOSS_FRAME_SCALE = 0.45
+	layout.MAX_BOSS_FRAMES = 4
+	layout.DEFAULT_FRAME_SCALES = {
+		UFI_PlayerFrame = 0.55,
+		UFI_TargetFrame = 0.55,
+		UFI_TargetOfTargetFrame = 0.25,
+		UFI_FocusFrame = 0.55,
+		UFI_BossFrameAnchor = 1,
+	}
+
+	for index = 1, layout.MAX_BOSS_FRAMES do
+		local name = "UFI_BossFrame" .. index
+		layout.DEFAULT_FRAME_SCALES[name] = layout.DEFAULT_FRAME_SCALES[name] or layout.DEFAULT_BOSS_FRAME_SCALE
+	end
+
+	FreezeTable(layout.DATA, "Layout.DATA")
+	FreezeTable(layout.DEFAULT_FRAME_SCALES, "Layout.DEFAULT_FRAME_SCALES")
+
+	function layout.ResolveX(rect, mirrored)
+		local art = layout.DATA.Art
+		local width = rect.width or rect.size
+		if not mirrored then
+			return rect.x - art.x
+		end
+		local localX = rect.x - art.x
+		return art.width - (localX + width)
+	end
+
+	function layout.ResolveY(rect)
+		return rect.y - layout.DATA.Art.y
+	end
+
+	function layout.ResolveRect(rect, mirrored)
+		local x = layout.ResolveX(rect, mirrored)
+		local y = layout.ResolveY(rect)
+		local width = rect.width or rect.size
+		local height = rect.height or rect.size
+		return x, y, width, height
+	end
+
+	function layout.ToTexCoord(rect)
+		local tex = layout.DATA.TextureSize
+		local left = rect.x / tex.width
+		local right = (rect.x + rect.width) / tex.width
+		local top = rect.y / tex.height
+		local bottom = (rect.y + rect.height) / tex.height
+		return left, right, top, bottom
+	end
+
+	return layout
+end)()
+
+local UFI_LAYOUT = Layout.DATA
+local LayoutResolveX = Layout.ResolveX
+local LayoutResolveY = Layout.ResolveY
+local LayoutResolveRect = Layout.ResolveRect
+local LayoutToTexCoord = Layout.ToTexCoord
+
+local AURA_ICON_SPACING = Layout.AURA_ICON_SPACING
+local AURA_ROW_VERTICAL_SPACING = Layout.AURA_ROW_VERTICAL_SPACING
+local AURA_HITRECT_PADDING = Layout.AURA_HITRECT_PADDING
+
+---@diagnostic disable-next-line: deprecated
+local unpack = unpack or table.unpack
+
+local STATUSBAR_TEXTURE = Layout.STATUSBAR_TEXTURE
+local FONT_DEFAULT = Layout.FONT_DEFAULT
+
+local NAME_TEXT_COLOR_R, NAME_TEXT_COLOR_G, NAME_TEXT_COLOR_B = 1, 0.82, 0
+
+local DEFAULT_BOSS_FRAME_SCALE = Layout.DEFAULT_BOSS_FRAME_SCALE
+local MAX_BOSS_FRAMES = Layout.MAX_BOSS_FRAMES
+local DEFAULT_FRAME_SCALES = Layout.DEFAULT_FRAME_SCALES
+
+local UpdatePlayerLevel -- forward declaration
 
 --[[
 Pixel Alignment Validation
@@ -38,53 +170,7 @@ Pixel Alignment Validation
 - Restore your preferred scale after verification.
 ]]
 
-local function LayoutResolveX(rect, mirrored)
-	local width = rect.width or rect.size
-	if not mirrored then
-		return rect.x - UFI_LAYOUT.Art.x
-	end
-	local localX = rect.x - UFI_LAYOUT.Art.x
-	return UFI_LAYOUT.Art.width - (localX + width)
-end
-
-local function LayoutResolveY(rect)
-	return rect.y - UFI_LAYOUT.Art.y
-end
-
-local function LayoutResolveRect(rect, mirrored)
-	local x = LayoutResolveX(rect, mirrored)
-	local y = LayoutResolveY(rect)
-	local width = rect.width or rect.size
-	local height = rect.height or rect.size
-	return x, y, width, height
-end
-
-local function LayoutToTexCoord(rect)
-	local tex = UFI_LAYOUT.TextureSize
-	local left = rect.x / tex.width
-	local right = (rect.x + rect.width) / tex.width
-	local top = rect.y / tex.height
-	local bottom = (rect.y + rect.height) / tex.height
-	return left, right, top, bottom
-end
-
-local AURA_ICON_SPACING = 4
-local AURA_ROW_VERTICAL_SPACING = 6
-local AURA_HITRECT_PADDING = 5
-
-local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
-
-local DEFAULT_BOSS_FRAME_SCALE = 0.45
-
-local DEFAULT_FRAME_SCALES = {
-	UFI_PlayerFrame = 0.55,
-	UFI_TargetFrame = 0.55,
-	UFI_TargetOfTargetFrame = 0.25,
-	UFI_FocusFrame = 0.55,
-	UFI_BossFrameAnchor = 1,
-}
-
+-- Fetch the persisted scale for a frame, falling back to defaults.
 local function GetFrameScale(frameName)
 	if not frameName then
 		return 1
@@ -100,6 +186,7 @@ local function GetFrameScale(frameName)
 	return DEFAULT_FRAME_SCALES[frameName] or 1
 end
 
+-- Persist and apply a frame's scale, updating its overlay to match.
 local function SetFrameScale(frameName, scale)
 	if not frameName or type(scale) ~= "number" or scale <= 0 then
 		return
@@ -118,6 +205,7 @@ local function SetFrameScale(frameName, scale)
 	end
 end
 
+-- Apply the stored scale to a freshly created frame.
 local function ApplySavedScaleToFrame(frame)
 	if not frame then
 		return
@@ -131,6 +219,7 @@ local function ApplySavedScaleToFrame(frame)
 	frame:SetScale(GetFrameScale(name))
 end
 
+-- Compute a tight clickable region aligned with the visible art cutout.
 local function ApplyFrameHitRect(frame, isMirrored)
 	if not frame then
 		return
@@ -160,6 +249,7 @@ local function ApplyFrameHitRect(frame, isMirrored)
 	}
 end
 
+-- Build the base art texture (or portrait mask) with proper flipping.
 local function CreateUnitArtTexture(parent, texturePath, mirrored, layer, subLevel)
 	local texture = parent:CreateTexture(nil, layer or "ARTWORK", nil, subLevel or 0)
 	texture:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
@@ -174,6 +264,7 @@ local function CreateUnitArtTexture(parent, texturePath, mirrored, layer, subLev
 	return texture
 end
 
+-- Shared scaffolding used by every unit frame before specialization.
 local function SetupUnitFrameBase(frame, texturePath, mirrored)
 	frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
 	frame:SetFrameStrata("LOW")
@@ -197,6 +288,7 @@ local function SetupUnitFrameBase(frame, texturePath, mirrored)
 	return visual
 end
 
+-- Create a single aura slot with matching icon, count, and cooldown widgets.
 local function CreateAuraIcon(parent, size)
 	local iconFrame = CreateFrame("Frame", nil, parent)
 	iconFrame:SetSize(size, size)
@@ -227,6 +319,7 @@ local function CreateAuraIcon(parent, size)
 	return iconFrame
 end
 
+-- Anchor an aura row either above or below the health bar region.
 local function PositionAuraRow(row, frame, mirrored, position, order)
 	if not row or not row.container then
 		return
@@ -255,6 +348,7 @@ local function PositionAuraRow(row, frame, mirrored, position, order)
 	row.currentOrder = order
 end
 
+-- Build an aura row definition and populate it with a fixed number of icons.
 local function CreateAuraRow(frame, options)
 	local count = options.count or 5
 	local mirrored = not not options.mirrored
@@ -289,16 +383,13 @@ local function CreateAuraRow(frame, options)
 	return icons
 end
 
--------------------------------------------------------------------------------
--- UTILITY FUNCTIONS
--------------------------------------------------------------------------------
-
--- Debug output to chat
+-- Emit addon-prefixed messages in the default chat frame.
 local function Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[UFI]|r " .. tostring(msg))
 end
 
 -- Get unit color (class color for players, reaction color for NPCs)
+-- Consolidate color lookups so unit name text stays consistent across frames.
 local function GetUnitColor(unit)
 	local r, g, b
 
@@ -322,7 +413,7 @@ local function GetUnitColor(unit)
 	return r, g, b
 end
 
--- Format large numbers with abbreviations (k/M/G)
+-- Format large numbers with abbreviations (k/M/G).
 local function AbbreviateNumber(value)
 	if not value then
 		return "0"
@@ -342,35 +433,42 @@ local function AbbreviateNumber(value)
 	end
 end
 
-local FRAME_TEXTURES = {
+-- Central lookup for base frame textures keyed by classification.
+local FRAME_TEXTURES = FreezeTable({
 	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
 	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
 	elite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite",
 	rare = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare",
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
-}
+}, "FRAME_TEXTURES")
 
-local PLAYER_TEXTURE_COLORS = {
+-- Alternate vertex colors applied to the player frame under specific states.
+local PLAYER_TEXTURE_COLORS = FreezeTable({
 	normal = { r = 1, g = 1, b = 1 },
 	threat = { r = 1, g = 0.3, b = 0.3 },
-}
+}, "PLAYER_TEXTURE_COLORS")
 
-local MAX_BOSS_FRAMES = 4
-for index = 1, MAX_BOSS_FRAMES do
-	DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index] = DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index]
-		or DEFAULT_BOSS_FRAME_SCALE
-end
+local ADDON_VERSION = "1.0.0"
+local DB_SCHEMA_VERSION = 1
+
 local BOSS_FRAME_STRIDE = UFI_LAYOUT.Art.height + UFI_LAYOUT.CastBar.OffsetY + 40
-local BOSS_CLASSIFICATION_TEXTURES = {
+local BOSS_CLASSIFICATION_TEXTURES = FreezeTable({
 	worldboss = FRAME_TEXTURES.elite,
 	elite = FRAME_TEXTURES.elite,
 	rare = FRAME_TEXTURES.rare,
 	rareelite = FRAME_TEXTURES.rareElite,
-}
+}, "BOSS_CLASSIFICATION_TEXTURES")
 local bossFrames = {}
 local bossFramesByUnit = {}
 local UpdateBossFrame
 local UpdateAllBossFrames
+local UpdateBossHealth
+local UpdateBossPower
+local UpdateBossPortrait
+local UpdateBossName
+local UpdateBossLevel
+local UpdateBossClassification
+local ClearBossUnitFrame
 
 local function IsBossUnit(unit)
 	return unit ~= nil and bossFramesByUnit[unit] ~= nil
@@ -391,6 +489,7 @@ local function ApplyBossTexture(frame, classification)
 end
 
 -- Format health/power text based on interface options for consistency
+-- Format health/power text based on interface options for consistency.
 local function FormatStatusText(current, max)
 	local statusTextPercentage = GetCVar("statusTextPercentage")
 
@@ -405,7 +504,7 @@ local function FormatStatusText(current, max)
 	return AbbreviateNumber(current) .. " / " .. AbbreviateNumber(max)
 end
 
-local SELF_BUFF_EXCLUSIONS = {
+local SELF_BUFF_EXCLUSIONS = FreezeTable({
 	[72221] = true, -- Luck of the Draw
 	[91769] = true, -- Keeper's Scroll: Steadfast
 	[91794] = true,
@@ -421,8 +520,9 @@ local SELF_BUFF_EXCLUSIONS = {
 	[993959] = true, -- Titan Scroll: Aggramar
 	[993961] = true, -- Titan Scroll: Golganneth
 	[9931032] = true,
-}
+}, "SELF_BUFF_EXCLUSIONS")
 
+-- Construct a themed StatusBar aligned with the art layout coordinates.
 local function CreateStatusBar(parent, rect, mirrored)
 	local x, y, width, height = LayoutResolveRect(rect, mirrored)
 	local bar = CreateFrame("StatusBar", nil, parent)
@@ -446,6 +546,7 @@ local function CreateStatusBar(parent, rect, mirrored)
 	return bar
 end
 
+-- Helper for creating font strings with consistent defaults.
 local function CreateFontString(parent, fontOptions)
 	local fontString = parent:CreateFontString(nil, "OVERLAY")
 	local fontFlags = fontOptions.flags
@@ -460,6 +561,7 @@ local function CreateFontString(parent, fontOptions)
 	return fontString
 end
 
+-- Create the circular portrait texture that sits inside the art ring.
 local function CreatePortrait(parent, mirrored)
 	local rect = UFI_LAYOUT.Portrait
 	local x, y, width, height = LayoutResolveRect(rect, mirrored)
@@ -470,6 +572,7 @@ local function CreatePortrait(parent, mirrored)
 	return portrait
 end
 
+-- Precomputed raid target dropdown entries with colorized labels.
 local RAID_TARGET_ICON_OPTIONS = {
 	{ name = RAID_TARGET_1, index = 1, r = 1.0, g = 1.0, b = 0.0 },
 	{ name = RAID_TARGET_2, index = 2, r = 1.0, g = 0.5, b = 0.0 },
@@ -481,6 +584,7 @@ local RAID_TARGET_ICON_OPTIONS = {
 	{ name = RAID_TARGET_8, index = 8, r = 1.0, g = 1.0, b = 1.0 },
 }
 
+-- Generate a secure dropdown mirroring Blizzard's unit interaction menus.
 local function CreateUnitInteractionDropdown(unit, dropdownName, options)
 	local fallbackTitle = (options and options.fallbackTitle) or unit
 	local extraLevel1Buttons = options and options.extraLevel1Buttons
@@ -491,6 +595,7 @@ local function CreateUnitInteractionDropdown(unit, dropdownName, options)
 		local provided = options.level2Handlers
 		local legacy = options.extraLevel2Handlers
 		if provided and legacy and provided ~= legacy then
+			-- Support both new and legacy menu providers without dropping entries.
 			level2Handlers = {}
 			for key, handler in pairs(legacy) do
 				level2Handlers[key] = handler
@@ -718,30 +823,32 @@ local defaultPositions = {
 
 -- Initialize saved variables
 local function InitializeDatabase()
-	if not UnitFramesImprovedDB then
-		UnitFramesImprovedDB = {
-			version = "1.0.0",
-			isUnlocked = false,
-			positions = {},
-			scales = {},
-		}
+	UnitFramesImprovedDB = UnitFramesImprovedDB or {}
+	local db = UnitFramesImprovedDB
+
+	db.version = ADDON_VERSION
+	db.schemaVersion = tonumber(db.schemaVersion) or 0
+	if db.schemaVersion < DB_SCHEMA_VERSION then
+		-- Placeholder for future migrations; bump schema once work completes.
+		db.schemaVersion = DB_SCHEMA_VERSION
 	end
 
-	-- Migrate old versions if needed
-	if not UnitFramesImprovedDB.version or UnitFramesImprovedDB.version < "1.0.0" then
-		UnitFramesImprovedDB.version = "1.0.0"
+	if type(db.isUnlocked) ~= "boolean" then
+		db.isUnlocked = false
 	end
 
-	UnitFramesImprovedDB.scales = UnitFramesImprovedDB.scales or {}
+	db.positions = db.positions or {}
+	db.scales = db.scales or {}
+
 	for frameName, defaultScale in pairs(DEFAULT_FRAME_SCALES) do
-		local current = UnitFramesImprovedDB.scales[frameName]
+		local current = db.scales[frameName]
 		if type(current) ~= "number" or current <= 0 then
-			UnitFramesImprovedDB.scales[frameName] = defaultScale
+			db.scales[frameName] = defaultScale
 		end
 	end
 end
 
--- Validate position data
+-- Sanity-check saved position tables so bad data does not taint frame anchors.
 local function ValidatePosition(pos)
 	if not pos then
 		return false
@@ -756,6 +863,7 @@ local function ValidatePosition(pos)
 	return true
 end
 
+-- Fetch a saved position or fall back to the hard-coded defaults.
 local function GetSavedPosition(frameName)
 	UnitFramesImprovedDB = UnitFramesImprovedDB or {}
 	UnitFramesImprovedDB.positions = UnitFramesImprovedDB.positions or {}
@@ -793,12 +901,12 @@ local function InitializeFramePosition(frameName, frame, pos)
 	return pos
 end
 
--- Check if frames can be repositioned
+-- Repositioning is forbidden while secure frames are in combat lockdown.
 local function CanRepositionFrames()
 	return not InCombatLockdown()
 end
 
--- Save position for a frame
+-- Persist the latest coordinates for a given frame.
 local function SavePosition(frameName, point, relativePoint, x, y, relativeTo)
 	if not UnitFramesImprovedDB.positions then
 		UnitFramesImprovedDB.positions = {}
@@ -813,7 +921,7 @@ local function SavePosition(frameName, point, relativePoint, x, y, relativeTo)
 	}
 end
 
--- Apply position to a frame
+-- Attempt to move a frame immediately, or defer until after combat.
 local function ApplyPosition(frameName)
 	local frame = _G[frameName]
 	if not frame then
@@ -835,6 +943,7 @@ local function ApplyPosition(frameName)
 	end
 end
 
+-- Apply a supplied position blob, respecting combat lockdown rules.
 local function ApplyFramePositionData(frameName, pos)
 	local frame = _G[frameName]
 	if not frame then
@@ -853,7 +962,7 @@ local function ApplyFramePositionData(frameName, pos)
 	end
 end
 
--- Apply all pending positions (called after combat ends)
+-- Flush any delayed position changes once combat restrictions clear.
 local function ApplyPendingPositions()
 	if not CanRepositionFrames() then
 		return
@@ -873,7 +982,7 @@ local function ApplyPendingPositions()
 	end
 end
 
--- Reset frame to default position
+-- Restore a frame (and associated scales) back to shipped defaults.
 local function ResetFramePosition(frameName)
 	local pos = defaultPositions[frameName]
 	if not pos then
@@ -904,6 +1013,7 @@ local function ResetFramePosition(frameName)
 	Print("Reset " .. frameName .. " to default position")
 end
 
+-- Paint the move overlay border and segments with the provided color.
 local function ApplyOverlayColorTextures(overlay, r, g, b, a)
 	if overlay.border then
 		overlay.border:SetColorTexture(r, g, b, a)
@@ -923,6 +1033,7 @@ local function ApplyOverlayColorTextures(overlay, r, g, b, a)
 	end
 end
 
+-- Cache overlay color values so drags can temporarily tint them.
 local function SetOverlayColor(overlay, r, g, b, a)
 	if not overlay then
 		return
@@ -937,6 +1048,7 @@ local function SetOverlayColor(overlay, r, g, b, a)
 	ApplyOverlayColorTextures(overlay, r, g, b, a)
 end
 
+-- Translate between frame anchors and overlay rectangles to keep drag handles aligned.
 local function ComputeAnchorOffsets(point, frameWidth, frameHeight, overlayWidth, overlayHeight, leftInset, topInset)
 	point = point or "TOPLEFT"
 
@@ -996,6 +1108,7 @@ local function ComputeAnchorOffsets(point, frameWidth, frameHeight, overlayWidth
 	return anchorXOffset, anchorYOffset
 end
 
+-- Keep overlay frames sized to the underlying secure frame's hit rect.
 local function UpdateStandardOverlayGeometry(frame, overlay)
 	if not frame or not overlay then
 		return
@@ -1284,6 +1397,7 @@ local function UpdateBossOverlayGeometry(anchor, overlay)
 	end
 end
 
+-- Recalculate overlay placement unless a drag operation is in progress.
 UpdateOverlayForFrame = function(frameName)
 	local overlay = frameOverlays[frameName]
 	if not overlay or overlay.isDragging then
@@ -1302,6 +1416,7 @@ UpdateOverlayForFrame = function(frameName)
 	end
 end
 
+-- Translate overlay drag coordinates back into frame offsets.
 local function OverlayOffsetsToFrameOffsets(overlay, point, x, y)
 	if not overlay then
 		return x or 0, y or 0
@@ -1525,7 +1640,7 @@ local function LockFrames()
 	if next(unsavedPositions) then
 		Print("Stored frame positions. Unlock again to make further adjustments.")
 	end
-	table.wipe(unsavedPositions)
+	table_wipe(unsavedPositions)
 
 	isUnlocked = false
 	UnitFramesImprovedDB.isUnlocked = false
@@ -1620,7 +1735,7 @@ SlashCmdList["UFI"] = function(msg)
 			end
 		end
 	elseif cmd == "help" or cmd == "" then
-		Print("|cff00ff00UnitFramesImproved v1.0.0|r")
+		Print("|cff00ff00UnitFramesImproved v" .. ADDON_VERSION .. "|r")
 		Print("Available commands:")
 		Print("  |cffffcc00/ufi unlock|r - Unlock frames for repositioning")
 		Print("  |cffffcc00/ufi lock|r - Lock frames and save positions")
@@ -1638,26 +1753,338 @@ end
 -- PLAYER FRAME CREATION
 -------------------------------------------------------------------------------
 
-local function CreatePlayerFrame()
-	local mirrored = true
-	local frame = CreateFrame("Button", "UFI_PlayerFrame", UIParent, "SecureUnitButtonTemplate")
-	frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
-	frame:SetFrameStrata("LOW")
-	frame:SetFrameLevel(20)
-	frame.mirrored = mirrored
+local function CreateUnitFrame(config)
+	assert(type(config) == "table", "CreateUnitFrame requires a configuration table")
+	assert(config.name, "CreateUnitFrame requires a frame name")
+	assert(config.unit, "CreateUnitFrame requires a unit token")
 
-	ApplyFrameHitRect(frame, mirrored)
-	InitializeFramePosition("UFI_PlayerFrame", frame)
+	local frame = CreateFrame("Button", config.name, config.parent or UIParent, "SecureUnitButtonTemplate")
+	frame.unitToken = config.unit
+	frame.mirrored = not not config.mirrored
 
-	local visual = CreateFrame("Frame", nil, frame)
-	visual:SetAllPoints(frame)
-	visual:SetFrameStrata("LOW")
-	visual:SetFrameLevel(frame:GetFrameLevel())
+	local desiredLevel = config.frameLevel or 20
+	frame:SetFrameLevel(desiredLevel)
+
+	local texturePath = config.texturePath or FRAME_TEXTURES.default
+	local visual = SetupUnitFrameBase(frame, texturePath, frame.mirrored)
 	frame.visualLayer = visual
 
-	frame.texture = CreateUnitArtTexture(visual, FRAME_TEXTURES.player, mirrored, "ARTWORK", 0)
-	frame.portraitMask = CreateUnitArtTexture(visual, FRAME_TEXTURES.player, mirrored, "ARTWORK", 5)
-	frame.portraitMask:SetBlendMode("BLEND")
+	local frameStrata = config.frameStrata or "LOW"
+	frame:SetFrameStrata(frameStrata)
+	visual:SetFrameStrata(frameStrata)
+	visual:SetFrameLevel(frame:GetFrameLevel())
+
+	local includeHealthBar = config.includeHealthBar ~= false
+	local includePowerBar = config.includePowerBar ~= false
+	local includePortrait = config.includePortrait ~= false
+
+	if includeHealthBar then
+		frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, frame.mirrored)
+	end
+
+	if includePowerBar then
+		frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, frame.mirrored)
+	end
+
+	if includePortrait then
+		frame.portrait = CreatePortrait(visual, frame.mirrored)
+	end
+
+	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, frame.mirrored)
+	local levelFont = config.levelFont or {}
+	frame.levelText = CreateFontString(visual, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = levelX,
+		y = -levelY,
+		size = levelFont.size or 14,
+		flags = levelFont.flags or "OUTLINE",
+		color = levelFont.color or { r = 1, g = 0.82, b = 0 },
+		drawLayer = levelFont.drawLayer or 0,
+	})
+	frame.levelText:SetSize(levelWidth, levelHeight)
+	frame.levelText:SetJustifyH("CENTER")
+	frame.levelText:SetJustifyV("MIDDLE")
+
+	local textStyles = config.textStyles or {}
+	local defaultTextStyles = {
+		name = {
+			y = 8,
+			size = 16,
+			flags = "THICKOUTLINE",
+			drawLayer = 7,
+			color = { r = NAME_TEXT_COLOR_R, g = NAME_TEXT_COLOR_G, b = NAME_TEXT_COLOR_B },
+		},
+		health = {
+			y = -10,
+			size = 14,
+			flags = "OUTLINE",
+			drawLayer = 7,
+			color = { r = 1, g = 1, b = 1 },
+		},
+		power = {
+			y = 0,
+			size = 13,
+			flags = "OUTLINE",
+			drawLayer = 7,
+			color = { r = 1, g = 1, b = 1 },
+		},
+	}
+
+	local function createText(parent, defaults, style)
+		if not parent or style == false then
+			return nil
+		end
+
+		style = style or {}
+
+		local fontOptions = {
+			point = "CENTER",
+			relativeTo = parent,
+			relativePoint = "CENTER",
+			x = style.x or defaults.x or 0,
+			y = style.y or defaults.y or 0,
+			size = style.size or defaults.size,
+			flags = style.flags or defaults.flags,
+			drawLayer = style.drawLayer or defaults.drawLayer,
+		}
+
+		local color = style.color or defaults.color
+		if color then
+			fontOptions.color = color
+		end
+
+		return CreateFontString(parent, fontOptions)
+	end
+
+	if includeHealthBar and textStyles.name ~= false then
+		frame.nameText = createText(frame.healthBar, defaultTextStyles.name, textStyles.name)
+	end
+
+	if includeHealthBar and textStyles.health ~= false then
+		frame.healthText = createText(frame.healthBar, defaultTextStyles.health, textStyles.health)
+	end
+
+	if includePowerBar and textStyles.power ~= false then
+		frame.powerText = createText(frame.powerBar, defaultTextStyles.power, textStyles.power)
+	end
+
+	if config.enableMouse ~= false then
+		frame:EnableMouse(true)
+	else
+		frame:EnableMouse(false)
+	end
+
+	if config.clicks ~= false then
+		if type(config.clicks) == "table" then
+			frame:RegisterForClicks(unpack(config.clicks))
+		else
+			frame:RegisterForClicks(config.clicks or "AnyUp")
+		end
+	end
+
+	if config.initializePosition ~= false then
+		if type(config.initializePosition) == "function" then
+			config.initializePosition(frame)
+		else
+			InitializeFramePosition(config.name, frame)
+		end
+	end
+
+	local profile = {}
+	if type(config.profile) == "table" then
+		for key, value in pairs(config.profile) do
+			profile[key] = value
+		end
+	end
+	profile.unit = config.unit
+	frame.ufProfile = profile
+
+	if config.postCreate then
+		config.postCreate(frame)
+	end
+
+	return frame
+end
+
+-------------------------------------------------------------------------------
+-- UNIT FRAME FACTORY HELPERS
+-------------------------------------------------------------------------------
+
+local function ApplyUnitFrameProfileDefaults(frame, defaults)
+	if not frame then
+		return nil
+	end
+
+	local profile = frame.ufProfile or {}
+	defaults = defaults or {}
+
+	if defaults.customLevelUpdate ~= nil then
+		profile.customLevelUpdate = defaults.customLevelUpdate
+	end
+
+	local powerDefaults = defaults.power
+	if powerDefaults then
+		local powerProfile = profile.power or {}
+		for key, value in pairs(powerDefaults) do
+			powerProfile[key] = value
+		end
+		profile.power = powerProfile
+	end
+
+	local levelDefaults = defaults.level
+	if levelDefaults then
+		local levelProfile = profile.level or {}
+		for key, value in pairs(levelDefaults) do
+			levelProfile[key] = value
+		end
+		profile.level = levelProfile
+	end
+
+	frame.ufProfile = profile
+	return profile
+end
+
+local function AttachStatusIndicator(frame, options)
+	if not frame or not frame.healthBar then
+		return nil
+	end
+
+	options = options or {}
+
+	local fontOptions = {
+		point = options.point or "CENTER",
+		relativeTo = options.relativeTo or frame.healthBar,
+		relativePoint = options.relativePoint or options.point or "CENTER",
+		x = options.x or 0,
+		y = options.y or -12,
+		size = options.size or 20,
+		flags = options.flags or "OUTLINE",
+		color = options.color or { r = 0.5, g = 0.5, b = 0.5 },
+		drawLayer = options.drawLayer or 7,
+	}
+
+	local label = CreateFontString(options.parent or frame.healthBar, fontOptions)
+	label:Hide()
+
+	local statusConfig = {
+		trackDead = options.trackDead,
+		trackGhost = options.trackGhost,
+		trackDisconnected = options.trackDisconnected,
+		zeroHealthWhenStatus = options.zeroHealthWhenStatus,
+		labelFontString = label,
+		labels = options.labels or {},
+		hideHealthTextOnStatus = options.hideHealthTextOnStatus,
+	}
+
+	frame.ufProfile.status = statusConfig
+	return label, statusConfig
+end
+
+local function AttachClassificationOverlay(frame, options)
+	if not frame or not frame.visualLayer then
+		return nil
+	end
+
+	options = options or {}
+
+	local texturePath = options.texture or FRAME_TEXTURES.default
+	local layer = options.layer or "OVERLAY"
+	local subLevel = options.subLevel or 1
+
+	local texture = CreateUnitArtTexture(frame.visualLayer, texturePath, frame.mirrored, layer, subLevel)
+	texture:Hide()
+	frame.ufProfile.classificationTexture = texture
+	frame.ufProfile.classificationTextures = options.textures or BOSS_CLASSIFICATION_TEXTURES
+	return texture
+end
+
+local function AttachAuraContainers(frame, config)
+	if not frame then
+		return nil, nil
+	end
+
+	config = config or {}
+
+	local buffsConfig = config.buffs
+	if buffsConfig ~= false then
+		buffsConfig = buffsConfig or {}
+		if buffsConfig.parent == nil then
+			buffsConfig.parent = frame.visualLayer
+		end
+		if buffsConfig.mirrored == nil then
+			buffsConfig.mirrored = frame.mirrored
+		end
+		frame.buffs = CreateAuraRow(frame, buffsConfig)
+	else
+		frame.buffs = nil
+	end
+
+	local debuffsConfig = config.debuffs
+	if debuffsConfig ~= false then
+		debuffsConfig = debuffsConfig or {}
+		if debuffsConfig.parent == nil then
+			debuffsConfig.parent = frame.visualLayer
+		end
+		if debuffsConfig.mirrored == nil then
+			debuffsConfig.mirrored = frame.mirrored
+		end
+		frame.debuffs = CreateAuraRow(frame, debuffsConfig)
+	else
+		frame.debuffs = nil
+	end
+
+	return frame.buffs, frame.debuffs
+end
+
+local function MakeUnitFrameUpdater(frameAccessor, updater)
+	return function(...)
+		local frame = frameAccessor(...)
+		if frame then
+			updater(frame, ...)
+		end
+	end
+end
+
+local function GetPlayerFrame()
+	return UFI_PlayerFrame
+end
+
+local function GetTargetFrame()
+	return UFI_TargetFrame
+end
+
+local function GetFocusFrame()
+	return UFI_FocusFrame
+end
+
+local function GetTargetOfTargetFrame()
+	return UFI_TargetOfTargetFrame
+end
+
+local function GetBossFrame(unit)
+	if not unit then
+		return nil
+	end
+
+	return bossFramesByUnit[unit]
+end
+
+local function CreatePlayerFrame()
+	local frame = CreateUnitFrame({
+		name = "UFI_PlayerFrame",
+		unit = "player",
+		mirrored = true,
+		texturePath = FRAME_TEXTURES.player,
+	})
+
+	ApplyUnitFrameProfileDefaults(frame, {
+		power = { hideTextWhenNoPower = true },
+		level = { colorByPlayerDiff = true },
+		customLevelUpdate = UpdatePlayerLevel,
+	})
+
 	frame.texture:SetVertexColor(
 		PLAYER_TEXTURE_COLORS.normal.r,
 		PLAYER_TEXTURE_COLORS.normal.g,
@@ -1670,71 +2097,15 @@ local function CreatePlayerFrame()
 	)
 	frame.currentVertexColor = PLAYER_TEXTURE_COLORS.normal
 
-	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
-	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
-
-	frame.portrait = CreatePortrait(visual, mirrored)
 	SetPortraitTexture(frame.portrait, "player")
-
-	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
-	local levelText = CreateFontString(visual, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = levelX,
-		y = -levelY,
-		size = 14,
-		flags = "OUTLINE",
-		drawLayer = 0,
-		color = { r = 1, g = 0.82, b = 0 },
-	})
-	levelText:SetSize(levelWidth, levelHeight)
-	levelText:SetJustifyH("CENTER")
-	levelText:SetJustifyV("MIDDLE")
-	frame.levelText = levelText
-
-	frame.nameText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 8,
-		size = 16,
-		flags = "THICKOUTLINE",
-		drawLayer = 7,
-	})
 	frame.nameText:SetText(UnitName("player"))
-
-	frame.healthText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = -10,
-		size = 14,
-		flags = "OUTLINE",
-		drawLayer = 7,
-		color = { r = 1, g = 1, b = 1 },
-	})
 	frame.healthText:SetText("")
-
-	frame.powerText = CreateFontString(frame.powerBar, {
-		point = "CENTER",
-		relativeTo = frame.powerBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 0,
-		size = 13,
-		flags = "OUTLINE",
-		drawLayer = 7,
-		color = { r = 1, g = 1, b = 1 },
-	})
 	frame.powerText:SetText("")
 
-	local selfBuffLevel = math.max((visual:GetFrameLevel() or 1) - 1, 0)
+	local selfBuffLevel = math.max((frame.visualLayer:GetFrameLevel() or 1) - 1, 0)
 	frame.selfBuffs = CreateAuraRow(frame, {
-		parent = visual,
-		mirrored = mirrored,
+		parent = frame.visualLayer,
+		mirrored = frame.mirrored,
 		count = 5,
 		position = "above",
 		order = 1,
@@ -1744,9 +2115,6 @@ local function CreatePlayerFrame()
 	for i = 1, #frame.selfBuffs do
 		frame.selfBuffs[i].border:SetVertexColor(1, 1, 1)
 	end
-
-	frame:EnableMouse(true)
-	frame:RegisterForClicks("AnyUp")
 
 	local dropdown = CreateUnitInteractionDropdown("player", "UFI_PlayerFrameDropDown", {
 		fallbackTitle = PLAYER or "Player",
@@ -1883,13 +2251,13 @@ end
 -------------------------------------------------------------------------------
 
 -- Cast bar state machine
-local CASTBAR_STATE = {
+local CASTBAR_STATE = FreezeTable({
 	HIDDEN = "hidden",
 	CASTING = "casting",
 	CHANNELING = "channeling",
 	FINISHED = "finished", -- Holding the end state (for interrupts/fails)
 	FADING = "fading",
-}
+}, "CASTBAR_STATE")
 
 local castBarsByUnit = {}
 
@@ -2196,105 +2564,34 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateTargetFrame()
-	local mirrored = false
-	local frame = CreateFrame("Button", "UFI_TargetFrame", UIParent, "SecureUnitButtonTemplate")
-
-	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
-	InitializeFramePosition("UFI_TargetFrame", frame)
-
-	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
-	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
-
-	frame.portrait = CreatePortrait(visual, mirrored)
-
-	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
-	local levelText = CreateFontString(visual, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = levelX,
-		y = -levelY,
-		size = 14,
-		flags = "OUTLINE",
-		color = { r = 1, g = 0.82, b = 0 },
-		drawLayer = 0,
-	})
-	levelText:SetSize(levelWidth, levelHeight)
-	levelText:SetJustifyH("CENTER")
-	levelText:SetJustifyV("MIDDLE")
-	frame.levelText = levelText
-
-	frame.nameText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 8,
-		size = 16,
-		flags = "THICKOUTLINE",
-		drawLayer = 7,
+	local frame = CreateUnitFrame({
+		name = "UFI_TargetFrame",
+		unit = "target",
+		mirrored = false,
 	})
 
-	frame.healthText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = -10,
-		size = 14,
-		flags = "OUTLINE",
-		color = { r = 1, g = 1, b = 1 },
-		drawLayer = 7,
+	ApplyUnitFrameProfileDefaults(frame, {
+		power = { hideTextWhenNoPower = true },
+		level = { colorByPlayerDiff = true },
 	})
 
-	frame.powerText = CreateFontString(frame.powerBar, {
-		point = "CENTER",
-		relativeTo = frame.powerBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 0,
-		size = 13,
-		flags = "OUTLINE",
-		color = { r = 1, g = 1, b = 1 },
-		drawLayer = 7,
+	frame.deadText = AttachStatusIndicator(frame, {
+		trackDead = true,
+		trackGhost = true,
+		labels = { dead = "Dead", ghost = "Ghost" },
+		hideHealthTextOnStatus = true,
 	})
 
-	frame.deadText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = -4,
-		size = 12,
-		flags = "OUTLINE",
-		color = { r = 0.5, g = 0.5, b = 0.5 },
-		drawLayer = 7,
+	frame.eliteTexture = AttachClassificationOverlay(frame, {
+		texture = FRAME_TEXTURES.default,
+		textures = BOSS_CLASSIFICATION_TEXTURES,
 	})
-	frame.deadText:Hide()
+	frame.castBar = CreateCastBar(frame, "target", frame.mirrored)
 
-	frame.eliteTexture = CreateUnitArtTexture(visual, FRAME_TEXTURES.default, mirrored, "OVERLAY", 1)
-	frame.eliteTexture:Hide()
-
-	frame.castBar = CreateCastBar(frame, "target", mirrored)
-
-	frame.buffs = CreateAuraRow(frame, {
-		parent = visual,
-		mirrored = mirrored,
-		count = 5,
-		position = "below",
-		order = 1,
+	AttachAuraContainers(frame, {
+		buffs = { count = 5, position = "below", order = 1 },
+		debuffs = { count = 5, position = "below", order = 2 },
 	})
-
-	frame.debuffs = CreateAuraRow(frame, {
-		parent = visual,
-		mirrored = mirrored,
-		count = 5,
-		position = "below",
-		order = 2,
-	})
-
-	frame:EnableMouse(true)
-	frame:RegisterForClicks("AnyUp")
 
 	local targetDropdown = CreateUnitInteractionDropdown("target", "UFI_TargetFrameDropDown", {
 		fallbackTitle = TARGET or "Target",
@@ -2320,104 +2617,36 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateFocusFrame()
-	local mirrored = false
-	local frame = CreateFrame("Button", "UFI_FocusFrame", UIParent, "SecureUnitButtonTemplate")
-
-	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
-	InitializeFramePosition("UFI_FocusFrame", frame)
-
-	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
-	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
-
-	frame.portrait = CreatePortrait(visual, mirrored)
-
-	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
-	local levelText = CreateFontString(visual, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = levelX,
-		y = -levelY,
-		size = 14,
-		flags = "OUTLINE",
-		color = { r = 1, g = 0.82, b = 0 },
-		drawLayer = 0,
-	})
-	levelText:SetSize(levelWidth, levelHeight)
-	levelText:SetJustifyH("CENTER")
-	levelText:SetJustifyV("MIDDLE")
-	frame.levelText = levelText
-
-	frame.nameText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 8,
-		size = 16,
-		flags = "THICKOUTLINE",
-		drawLayer = 7,
+	local frame = CreateUnitFrame({
+		name = "UFI_FocusFrame",
+		unit = "focus",
+		mirrored = false,
 	})
 
-	frame.healthText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = -10,
-		size = 14,
-		flags = "OUTLINE",
-		color = { r = 1, g = 1, b = 1 },
-		drawLayer = 7,
+	ApplyUnitFrameProfileDefaults(frame, {
+		power = { hideTextWhenNoPower = true },
+		level = { colorByPlayerDiff = true },
 	})
 
-	frame.powerText = CreateFontString(frame.powerBar, {
-		point = "CENTER",
-		relativeTo = frame.powerBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 0,
-		size = 13,
-		flags = "OUTLINE",
-		color = { r = 1, g = 1, b = 1 },
-		drawLayer = 7,
+	frame.deadText = AttachStatusIndicator(frame, {
+		trackDead = true,
+		trackGhost = true,
+		trackDisconnected = true,
+		zeroHealthWhenStatus = true,
+		labels = { dead = "Dead", ghost = "Ghost", disconnected = "Offline" },
+		hideHealthTextOnStatus = true,
 	})
 
-	frame.deadText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = -4,
-		size = 12,
-		flags = "OUTLINE",
-		color = { r = 0.5, g = 0.5, b = 0.5 },
-		drawLayer = 7,
+	frame.eliteTexture = AttachClassificationOverlay(frame, {
+		texture = FRAME_TEXTURES.default,
+		textures = BOSS_CLASSIFICATION_TEXTURES,
 	})
-	frame.deadText:Hide()
+	frame.castBar = CreateCastBar(frame, "focus", frame.mirrored)
 
-	frame.eliteTexture = CreateUnitArtTexture(visual, FRAME_TEXTURES.default, mirrored, "OVERLAY", 1)
-	frame.eliteTexture:Hide()
-
-	frame.castBar = CreateCastBar(frame, "focus", mirrored)
-
-	frame.buffs = CreateAuraRow(frame, {
-		parent = visual,
-		mirrored = mirrored,
-		count = 5,
-		position = "below",
-		order = 1,
+	AttachAuraContainers(frame, {
+		buffs = { count = 5, position = "below", order = 1 },
+		debuffs = { count = 5, position = "below", order = 2 },
 	})
-	frame.debuffs = CreateAuraRow(frame, {
-		parent = visual,
-		mirrored = mirrored,
-		count = 5,
-		position = "below",
-		order = 2,
-	})
-
-	frame:EnableMouse(true)
-	frame:RegisterForClicks("AnyUp")
 
 	local focusDropdown = CreateUnitInteractionDropdown("focus", "UFI_FocusFrameDropDown", {
 		fallbackTitle = FOCUS or "Focus",
@@ -2437,66 +2666,45 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateTargetOfTargetFrame()
-	local mirrored = true
-	local frame = CreateFrame("Button", "UFI_TargetOfTargetFrame", UIParent, "SecureUnitButtonTemplate")
 	local anchorFrame = UFI_TargetFrame or UIParent
-	frame:SetFrameStrata("LOW")
-
 	local baseLevel = math.max((anchorFrame and anchorFrame:GetFrameLevel() or 0) + 15, 15)
+
+	local frame = CreateUnitFrame({
+		name = "UFI_TargetOfTargetFrame",
+		unit = "targettarget",
+		mirrored = true,
+		frameLevel = baseLevel,
+		frameStrata = "LOW",
+		textStyles = {
+			name = { y = 6, size = 20, flags = "OUTLINE", drawLayer = 7 },
+			health = false,
+			power = false,
+		},
+	})
+
 	frame:SetFrameLevel(baseLevel)
-
-	local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, mirrored)
-	visual:SetFrameLevel(baseLevel)
-	InitializeFramePosition("UFI_TargetOfTargetFrame", frame)
-
-	frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, mirrored)
-	frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, mirrored)
-
-	frame.portrait = CreatePortrait(visual, mirrored)
-
-	local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, mirrored)
-	local levelText = CreateFontString(visual, {
-		point = "TOPLEFT",
-		relativeTo = frame,
-		relativePoint = "TOPLEFT",
-		x = levelX,
-		y = -levelY,
-		size = 14,
-		flags = "OUTLINE",
-		color = { r = 1, g = 0.82, b = 0 },
-		drawLayer = 0,
-	})
-	levelText:SetSize(levelWidth, levelHeight)
-	levelText:SetJustifyH("CENTER")
-	levelText:SetJustifyV("MIDDLE")
-	frame.levelText = levelText
-
-	frame.nameText = CreateFontString(frame.healthBar, {
-		point = "CENTER",
-		relativeTo = frame.healthBar,
-		relativePoint = "CENTER",
-		x = 0,
-		y = 6,
-		size = 20,
-		flags = "OUTLINE",
-		drawLayer = 7,
-	})
-
-	frame:EnableMouse(true)
-	frame:RegisterForClicks("AnyUp")
+	frame.visualLayer:SetFrameLevel(baseLevel)
 
 	frame:SetAttribute("unit", "targettarget")
 	frame:SetAttribute("type1", "target")
-	RegisterUnitWatch(frame)
+
+	ApplyUnitFrameProfileDefaults(frame, {
+		power = { hideTextWhenNoPower = true },
+		level = { colorByPlayerDiff = true },
+	})
 
 	frame:Hide()
 
 	return frame
 end
 
--------------------------------------------------------------------------------
 -- BOSS FRAME CREATION
--------------------------------------------------------------------------------
+
+local UpdateUnitFrameHealth
+local UpdateUnitFramePower
+local UpdateUnitFramePortrait
+local UpdateUnitFrameName
+local UpdateUnitFrameLevel
 
 local function ClearBossFrame(frame)
 	if not frame then
@@ -2528,142 +2736,13 @@ local function ClearBossFrame(frame)
 	frame.currentTexture = nil
 end
 
-local function UpdateBossHealth(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
-		return
-	end
-
-	if not UnitExists(unit) then
-		ClearBossFrame(frame)
-		return
-	end
-
-	local health = UnitHealth(unit)
-	local maxHealth = UnitHealthMax(unit)
-	if maxHealth == 0 then
-		maxHealth = 1
-	end
-
-	frame.healthBar:SetMinMaxValues(0, maxHealth)
-	frame.healthBar:SetValue(health)
-
-	local r, g, b = GetUnitColor(unit)
-	frame.healthBar:SetStatusBarColor(r, g, b)
-	frame.nameText:SetTextColor(r, g, b)
-	frame.healthText:SetText(FormatStatusText(health, maxHealth))
-end
-
-local function UpdateBossPower(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
-		return
-	end
-
-	if not UnitExists(unit) then
-		ClearBossFrame(frame)
-		return
-	end
-
-	local power = UnitPower(unit)
-	local maxPower = UnitPowerMax(unit)
-
-	if maxPower == 0 then
-		frame.powerBar:Show()
-		frame.powerBar:SetMinMaxValues(0, 1)
-		frame.powerBar:SetValue(0)
-		frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-		frame.powerText:SetText("")
-		frame.powerText:Hide()
-		return
-	end
-
-	frame.powerBar:Show()
-	frame.powerText:Show()
-
-	frame.powerBar:SetMinMaxValues(0, maxPower)
-	frame.powerBar:SetValue(power)
-	frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-
-	local powerType = UnitPowerType(unit)
-	local info = PowerBarColor[powerType]
-	if info then
-		frame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
-	end
-	frame.powerText:SetText(FormatStatusText(power, maxPower))
-end
-
-local function UpdateBossPortrait(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
-		return
-	end
-
-	if not UnitExists(unit) then
-		ClearBossFrame(frame)
-		return
-	end
-
-	SetPortraitTexture(frame.portrait, unit)
-end
-
-local function UpdateBossName(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
-		return
-	end
-
-	if not UnitExists(unit) then
-		ClearBossFrame(frame)
-		return
-	end
-
-	frame.nameText:SetText(UnitName(unit) or "")
-end
-
-local function UpdateBossLevel(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
-		return
-	end
-
-	if not UnitExists(unit) then
-		ClearBossFrame(frame)
-		return
-	end
-
-	local level = UnitLevel(unit)
-	if level == -1 then
-		frame.levelText:SetText("??")
-		frame.levelText:SetTextColor(1, 0, 0)
-		return
-	end
-
-	if level and level > 0 then
-		frame.levelText:SetText(level)
-	else
-		frame.levelText:SetText("")
-	end
-
-	local playerLevel = UnitLevel("player") or 0
-	local levelDiff = (level or playerLevel) - playerLevel
-
-	if levelDiff >= 5 then
-		frame.levelText:SetTextColor(1, 0, 0)
-	elseif levelDiff >= 3 then
-		frame.levelText:SetTextColor(1, 0.5, 0)
-	elseif levelDiff >= -2 then
-		frame.levelText:SetTextColor(1, 1, 0)
-	elseif levelDiff >= -4 then
-		frame.levelText:SetTextColor(0, 1, 0)
-	else
-		frame.levelText:SetTextColor(0.5, 0.5, 0.5)
-	end
-end
-
 local function UpdateBossFrame(unit)
-	local frame = bossFramesByUnit[unit]
-	if not frame then
+	if not unit then
+		return
+	end
+
+	if not UnitExists(unit) then
+		ClearBossUnitFrame(unit)
 		return
 	end
 
@@ -2672,10 +2751,7 @@ local function UpdateBossFrame(unit)
 	UpdateBossPortrait(unit)
 	UpdateBossName(unit)
 	UpdateBossLevel(unit)
-
-	if UnitExists(unit) then
-		ApplyBossTexture(frame, UnitClassification(unit))
-	end
+	UpdateBossClassification(unit)
 end
 
 local function UpdateAllBossFrames()
@@ -2695,82 +2771,30 @@ local function CreateBossFrames()
 
 	for index = 1, MAX_BOSS_FRAMES do
 		local unit = "boss" .. index
-		local frame = CreateFrame("Button", "UFI_BossFrame" .. index, anchor, "SecureUnitButtonTemplate")
-		frame:SetSize(UFI_LAYOUT.Art.width, UFI_LAYOUT.Art.height)
-		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * BOSS_FRAME_STRIDE))
-		frame:SetFrameStrata("LOW")
-		ApplyFrameHitRect(frame, false)
+		local frame = CreateUnitFrame({
+			name = "UFI_BossFrame" .. index,
+			unit = unit,
+			parent = anchor,
+			mirrored = false,
+			frameLevel = (anchor:GetFrameLevel() or 0) + index,
+			frameStrata = "LOW",
+			initializePosition = false,
+		})
 		frame.unit = unit
-		frame:EnableMouse(true)
-		frame:RegisterForClicks("AnyUp")
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -((index - 1) * BOSS_FRAME_STRIDE))
 
 		frame:SetAttribute("unit", unit)
 		frame:SetAttribute("type1", "target")
 		RegisterUnitWatch(frame)
 		frame:Hide()
 
-		frame:SetFrameLevel((anchor:GetFrameLevel() or 0) + index)
-		local visual = SetupUnitFrameBase(frame, FRAME_TEXTURES.default, false)
-		visual:SetFrameLevel(frame:GetFrameLevel())
-
-		frame.healthBar = CreateStatusBar(visual, UFI_LAYOUT.Health, false)
-		frame.powerBar = CreateStatusBar(visual, UFI_LAYOUT.Power, false)
-		frame.portrait = CreatePortrait(visual, false)
+		frame.castBar = CreateCastBar(frame, unit, frame.mirrored)
 		frame.currentTexture = FRAME_TEXTURES.default
-
-		local levelX, levelY, levelWidth, levelHeight = LayoutResolveRect(UFI_LAYOUT.LevelRest, false)
-		local levelText = CreateFontString(visual, {
-			point = "TOPLEFT",
-			relativeTo = frame,
-			relativePoint = "TOPLEFT",
-			x = levelX,
-			y = -levelY,
-			size = 14,
-			flags = "OUTLINE",
-			color = { r = 1, g = 0.82, b = 0 },
-			drawLayer = 0,
+		ApplyUnitFrameProfileDefaults(frame, {
+			power = { hideTextWhenNoPower = true },
+			level = { colorByPlayerDiff = true },
 		})
-		levelText:SetSize(levelWidth, levelHeight)
-		levelText:SetJustifyH("CENTER")
-		levelText:SetJustifyV("MIDDLE")
-		frame.levelText = levelText
-
-		frame.nameText = CreateFontString(frame.healthBar, {
-			point = "CENTER",
-			relativeTo = frame.healthBar,
-			relativePoint = "CENTER",
-			x = 0,
-			y = 8,
-			size = 16,
-			flags = "THICKOUTLINE",
-			drawLayer = 7,
-		})
-
-		frame.healthText = CreateFontString(frame.healthBar, {
-			point = "CENTER",
-			relativeTo = frame.healthBar,
-			relativePoint = "CENTER",
-			x = 0,
-			y = -10,
-			size = 14,
-			flags = "OUTLINE",
-			drawLayer = 7,
-			color = { r = 1, g = 1, b = 1 },
-		})
-
-		frame.powerText = CreateFontString(frame.powerBar, {
-			point = "CENTER",
-			relativeTo = frame.powerBar,
-			relativePoint = "CENTER",
-			x = 0,
-			y = 0,
-			size = 13,
-			flags = "OUTLINE",
-			drawLayer = 7,
-			color = { r = 1, g = 1, b = 1 },
-		})
-
-		frame.castBar = CreateCastBar(frame, unit, false)
 
 		frame:SetScript("OnShow", function(self)
 			if self.unit and UnitExists(self.unit) then
@@ -2797,6 +2821,300 @@ end
 -------------------------------------------------------------------------------
 -- PLAYER FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
+
+local function GetFrameProfile(frame)
+	return frame and frame.ufProfile
+end
+
+local function ResolveProfileUnit(frame, profile)
+	profile = profile or GetFrameProfile(frame)
+	if not profile then
+		return nil
+	end
+
+	local unit = profile.unit
+	if type(unit) == "function" then
+		return unit(frame)
+	end
+
+	return unit
+end
+
+local function ApplyLevelColorByDiff(fontString, levelDiff)
+	if not fontString then
+		return
+	end
+
+	if levelDiff >= 5 then
+		fontString:SetTextColor(1, 0, 0)
+	elseif levelDiff >= 3 then
+		fontString:SetTextColor(1, 0.5, 0)
+	elseif levelDiff >= -2 then
+		fontString:SetTextColor(1, 1, 0)
+	elseif levelDiff >= -4 then
+		fontString:SetTextColor(0, 1, 0)
+	else
+		fontString:SetTextColor(0.5, 0.5, 0.5)
+	end
+end
+
+UpdateUnitFrameHealth = function(frame)
+	if not frame or not frame.healthBar then
+		return
+	end
+
+	local profile = GetFrameProfile(frame)
+	if not profile then
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame, profile)
+	if not unit then
+		return
+	end
+
+	if not UnitExists(unit) then
+		local statusConfig = profile.status
+		if statusConfig and statusConfig.labelFontString then
+			statusConfig.labelFontString:Hide()
+		end
+		if frame.healthText then
+			frame.healthText:SetText("")
+		end
+		return
+	end
+
+	local health = UnitHealth(unit)
+	local maxHealth = UnitHealthMax(unit)
+	if maxHealth == 0 then
+		maxHealth = 1
+	end
+
+	local statusConfig = profile.status
+	local statusKey
+	if statusConfig then
+		if statusConfig.trackDisconnected and not UnitIsConnected(unit) then
+			statusKey = "disconnected"
+		elseif statusConfig.trackDead and UnitIsDead(unit) then
+			statusKey = "dead"
+		elseif statusConfig.trackGhost and UnitIsGhost(unit) then
+			statusKey = "ghost"
+		end
+
+		if statusKey and statusConfig.zeroHealthWhenStatus then
+			health = 0
+		end
+	end
+
+	frame.healthBar:SetMinMaxValues(0, maxHealth)
+	frame.healthBar:SetValue(health)
+
+	local r, g, b = GetUnitColor(unit)
+	frame.healthBar:SetStatusBarColor(r, g, b)
+	if frame.nameText then
+		frame.nameText:SetTextColor(NAME_TEXT_COLOR_R, NAME_TEXT_COLOR_G, NAME_TEXT_COLOR_B)
+	end
+
+	if statusConfig and statusConfig.labelFontString then
+		if statusKey then
+			local labels = statusConfig.labels or {}
+			statusConfig.labelFontString:SetText(labels[statusKey] or "")
+			statusConfig.labelFontString:Show()
+			if frame.healthText and statusConfig.hideHealthTextOnStatus then
+				frame.healthText:Hide()
+			end
+		else
+			statusConfig.labelFontString:Hide()
+			if frame.healthText then
+				frame.healthText:Show()
+				frame.healthText:SetText(FormatStatusText(health, maxHealth))
+			end
+		end
+	elseif frame.healthText then
+		frame.healthText:SetText(FormatStatusText(health, maxHealth))
+	end
+
+	if profile.customHealthUpdate then
+		profile.customHealthUpdate(frame, unit, health, maxHealth, statusKey)
+	end
+end
+
+UpdateUnitFramePower = function(frame)
+	if not frame or not frame.powerBar then
+		return
+	end
+
+	local profile = GetFrameProfile(frame)
+	if not profile then
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame, profile)
+	if not unit then
+		return
+	end
+
+	if not UnitExists(unit) then
+		if frame.powerText then
+			frame.powerText:SetText("")
+		end
+		return
+	end
+
+	local power = UnitPower(unit)
+	local maxPower = UnitPowerMax(unit)
+	local powerConfig = profile.power or {}
+
+	if maxPower == 0 then
+		frame.powerBar:SetMinMaxValues(0, 1)
+		frame.powerBar:SetValue(0)
+		frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
+		if frame.powerText then
+			frame.powerText:SetText("")
+			if powerConfig.hideTextWhenNoPower then
+				frame.powerText:Hide()
+			else
+				frame.powerText:Show()
+			end
+		end
+		if powerConfig.hideBarWhenNoPower then
+			frame.powerBar:Hide()
+		else
+			frame.powerBar:Show()
+		end
+		if profile.customPowerUpdate then
+			profile.customPowerUpdate(frame, unit, power, maxPower, true)
+		end
+		return
+	end
+
+	frame.powerBar:Show()
+	frame.powerBar:SetMinMaxValues(0, maxPower)
+	frame.powerBar:SetValue(power)
+	frame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
+
+	local powerType = UnitPowerType(unit)
+	local info = PowerBarColor[powerType]
+	if info then
+		frame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
+	end
+
+	if frame.powerText then
+		frame.powerText:Show()
+		frame.powerText:SetText(FormatStatusText(power, maxPower))
+	end
+
+	if profile.customPowerUpdate then
+		profile.customPowerUpdate(frame, unit, power, maxPower, false)
+	end
+end
+
+UpdateUnitFrameName = function(frame)
+	if not frame or not frame.nameText then
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame)
+	if not unit or not UnitExists(unit) then
+		frame.nameText:SetText("")
+		return
+	end
+
+	frame.nameText:SetText(UnitName(unit) or "")
+
+	local profile = GetFrameProfile(frame)
+	if profile and profile.customNameUpdate then
+		profile.customNameUpdate(frame, unit)
+	end
+end
+
+UpdateUnitFramePortrait = function(frame)
+	if not frame or not frame.portrait then
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame)
+	if not unit or not UnitExists(unit) then
+		return
+	end
+
+	SetPortraitTexture(frame.portrait, unit)
+end
+
+UpdateUnitFrameLevel = function(frame)
+	if not frame or not frame.levelText then
+		return
+	end
+
+	local profile = GetFrameProfile(frame)
+	if not profile then
+		return
+	end
+
+	if profile.customLevelUpdate then
+		profile.customLevelUpdate(frame)
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame, profile)
+	if not unit or not UnitExists(unit) then
+		frame.levelText:SetText("")
+		return
+	end
+
+	local level = UnitLevel(unit)
+	if level == -1 then
+		frame.levelText:SetText("??")
+		frame.levelText:SetTextColor(1, 0, 0)
+		return
+	end
+
+	frame.levelText:SetText(level)
+
+	local levelConfig = profile.level
+	if levelConfig and levelConfig.colorByPlayerDiff then
+		local referenceUnit = levelConfig.referenceUnit or "player"
+		local referenceLevel = UnitLevel(referenceUnit) or 0
+		ApplyLevelColorByDiff(frame.levelText, level - referenceLevel)
+	else
+		frame.levelText:SetTextColor(1, 0.82, 0)
+	end
+end
+
+local function ApplyBossClassification(frame, unit)
+	ApplyBossTexture(frame, UnitClassification(unit))
+end
+
+ClearBossUnitFrame = MakeUnitFrameUpdater(GetBossFrame, ClearBossFrame)
+UpdateBossHealth = MakeUnitFrameUpdater(GetBossFrame, UpdateUnitFrameHealth)
+UpdateBossPower = MakeUnitFrameUpdater(GetBossFrame, UpdateUnitFramePower)
+UpdateBossPortrait = MakeUnitFrameUpdater(GetBossFrame, UpdateUnitFramePortrait)
+UpdateBossName = MakeUnitFrameUpdater(GetBossFrame, UpdateUnitFrameName)
+UpdateBossLevel = MakeUnitFrameUpdater(GetBossFrame, UpdateUnitFrameLevel)
+UpdateBossClassification = MakeUnitFrameUpdater(GetBossFrame, ApplyBossClassification)
+
+local function UpdateClassificationOverlay(frame)
+	local profile = GetFrameProfile(frame)
+	if not frame or not profile or not profile.classificationTexture then
+		return
+	end
+
+	local unit = ResolveProfileUnit(frame, profile)
+	if not unit or not UnitExists(unit) then
+		profile.classificationTexture:Hide()
+		return
+	end
+
+	local mapping = profile.classificationTextures or BOSS_CLASSIFICATION_TEXTURES
+	local texturePath = mapping[UnitClassification(unit)]
+
+	if texturePath then
+		profile.classificationTexture:SetTexture(texturePath)
+		profile.classificationTexture:Show()
+	else
+		profile.classificationTexture:Hide()
+	end
+end
 
 local function ApplyPlayerTextureColor(color)
 	if not UFI_PlayerFrame or not color then
@@ -2828,81 +3146,23 @@ local function UpdatePlayerThreat()
 	end
 end
 
-local function UpdatePlayerHealth()
-	if not UFI_PlayerFrame then
+local UpdatePlayerHealth = MakeUnitFrameUpdater(GetPlayerFrame, UpdateUnitFrameHealth)
+local UpdatePlayerPower = MakeUnitFrameUpdater(GetPlayerFrame, UpdateUnitFramePower)
+local UpdatePlayerPortrait = MakeUnitFrameUpdater(GetPlayerFrame, UpdateUnitFramePortrait)
+local UpdatePlayerName = MakeUnitFrameUpdater(GetPlayerFrame, UpdateUnitFrameName)
+
+UpdatePlayerLevel = function(frame)
+	frame = frame or UFI_PlayerFrame
+	if not frame then
 		return
 	end
 
-	local health = UnitHealth("player")
-	local maxHealth = UnitHealthMax("player")
-
-	UFI_PlayerFrame.healthBar:SetMinMaxValues(0, maxHealth)
-	UFI_PlayerFrame.healthBar:SetValue(health)
-
-	-- Set color
-	local r, g, b = GetUnitColor("player")
-	UFI_PlayerFrame.healthBar:SetStatusBarColor(r, g, b)
-	UFI_PlayerFrame.nameText:SetTextColor(r, g, b)
-
-	-- Set text
-	UFI_PlayerFrame.healthText:SetText(FormatStatusText(health, maxHealth))
-end
-
-local function UpdatePlayerPower()
-	if not UFI_PlayerFrame then
-		return
-	end
-
-	local power = UnitPower("player")
-	local maxPower = UnitPowerMax("player")
-	local powerType = UnitPowerType("player")
-
-	if not UFI_PlayerFrame.powerBar then
-		return
-	end
-
-	UFI_PlayerFrame.powerBar:SetMinMaxValues(0, maxPower)
-	UFI_PlayerFrame.powerBar:SetValue(power)
-
-	-- Ensure texture stays in BACKGROUND layer
-	UFI_PlayerFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-
-	-- Set color based on power type
-	local info = PowerBarColor[powerType]
-	if info then
-		UFI_PlayerFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
-	end
-
-	-- Set text
-	UFI_PlayerFrame.powerText:SetText(FormatStatusText(power, maxPower))
-end
-
-local function UpdatePlayerPortrait()
-	if not UFI_PlayerFrame then
-		return
-	end
-	SetPortraitTexture(UFI_PlayerFrame.portrait, "player")
-end
-
-local function UpdatePlayerName()
-	if not UFI_PlayerFrame then
-		return
-	end
-	UFI_PlayerFrame.nameText:SetText(UnitName("player"))
-end
-
-local function UpdatePlayerLevel()
-	if not UFI_PlayerFrame then
-		return
-	end
-
-	local frame = UFI_PlayerFrame
 	local level = UnitLevel("player")
 	local inCombat = UnitAffectingCombat("player")
 
 	if inCombat then
 		frame.levelText:SetText(level)
-		frame.levelText:SetTextColor(1, 0.25, 0.25) -- Red tint while in combat
+		frame.levelText:SetTextColor(1, 0.25, 0.25)
 	elseif IsResting() then
 		frame.levelText:SetText("zzz")
 		frame.levelText:SetTextColor(1, 0.82, 0)
@@ -2916,159 +3176,182 @@ end
 -- TARGET FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
 
-local function UpdateTargetHealth()
-	if not UFI_TargetFrame then
-		return
-	end
-
-	if not UnitExists("target") then
-		return
-	end
-
-	local health = UnitHealth("target")
-	local maxHealth = UnitHealthMax("target")
-
-	UFI_TargetFrame.healthBar:SetMinMaxValues(0, maxHealth)
-	UFI_TargetFrame.healthBar:SetValue(health)
-
-	-- Set color based on unit type and state
-	local r, g, b = GetUnitColor("target")
-	UFI_TargetFrame.healthBar:SetStatusBarColor(r, g, b)
-	UFI_TargetFrame.nameText:SetTextColor(r, g, b)
-
-	-- Check if dead
-	if UnitIsDead("target") then
-		UFI_TargetFrame.deadText:SetText("Dead")
-		UFI_TargetFrame.deadText:Show()
-		UFI_TargetFrame.healthText:Hide()
-	elseif UnitIsGhost("target") then
-		UFI_TargetFrame.deadText:SetText("Ghost")
-		UFI_TargetFrame.deadText:Show()
-		UFI_TargetFrame.healthText:Hide()
-	else
-		UFI_TargetFrame.deadText:Hide()
-		UFI_TargetFrame.healthText:Show()
-		-- Set text
-		UFI_TargetFrame.healthText:SetText(FormatStatusText(health, maxHealth))
-	end
-end
-
-local function UpdateTargetPower()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		return
-	end
-
-	local power = UnitPower("target")
-	local maxPower = UnitPowerMax("target")
-	local powerType = UnitPowerType("target")
-
-	-- Hide power bar if target has no power
-	if maxPower == 0 then
-		UFI_TargetFrame.powerBar:Show()
-		UFI_TargetFrame.powerBar:SetMinMaxValues(0, 1)
-		UFI_TargetFrame.powerBar:SetValue(0)
-		UFI_TargetFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-		UFI_TargetFrame.powerText:SetText("")
-		UFI_TargetFrame.powerText:Hide()
-		return
-	end
-
-	UFI_TargetFrame.powerBar:Show()
-	UFI_TargetFrame.powerText:Show()
-
-	UFI_TargetFrame.powerBar:SetMinMaxValues(0, maxPower)
-	UFI_TargetFrame.powerBar:SetValue(power)
-
-	-- Ensure texture stays in BACKGROUND layer
-	UFI_TargetFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-
-	-- Set color based on power type
-	local info = PowerBarColor[powerType]
-	if info then
-		UFI_TargetFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
-	end
-
-	-- Set text
-	UFI_TargetFrame.powerText:SetText(FormatStatusText(power, maxPower))
-end
-
-local function UpdateTargetPortrait()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		return
-	end
-	SetPortraitTexture(UFI_TargetFrame.portrait, "target")
-end
-
-local function UpdateTargetName()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		return
-	end
-	UFI_TargetFrame.nameText:SetText(UnitName("target"))
-end
-
-local function UpdateTargetLevel()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		return
-	end
-
-	local level = UnitLevel("target")
-	if level == -1 then
-		-- Boss level (skull)
-		UFI_TargetFrame.levelText:SetText("??")
-		UFI_TargetFrame.levelText:SetTextColor(1, 0, 0) -- Red for skull
-	else
-		UFI_TargetFrame.levelText:SetText(level)
-
-		-- Color based on level difference
-		local playerLevel = UnitLevel("player")
-		local levelDiff = level - playerLevel
-
-		if levelDiff >= 5 then
-			UFI_TargetFrame.levelText:SetTextColor(1, 0, 0) -- Red
-		elseif levelDiff >= 3 then
-			UFI_TargetFrame.levelText:SetTextColor(1, 0.5, 0) -- Orange
-		elseif levelDiff >= -2 then
-			UFI_TargetFrame.levelText:SetTextColor(1, 1, 0) -- Yellow
-		elseif levelDiff >= -4 then
-			UFI_TargetFrame.levelText:SetTextColor(0, 1, 0) -- Green
-		else
-			UFI_TargetFrame.levelText:SetTextColor(0.5, 0.5, 0.5) -- Gray
-		end
-	end
-end
-
-local function UpdateTargetClassification()
-	if not UFI_TargetFrame or not UnitExists("target") then
-		return
-	end
-
-	local classification = UnitClassification("target")
-
-	if classification == "worldboss" or classification == "elite" then
-		UFI_TargetFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite"
-		)
-		UFI_TargetFrame.eliteTexture:Show()
-	elseif classification == "rare" then
-		UFI_TargetFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare"
-		)
-		UFI_TargetFrame.eliteTexture:Show()
-	elseif classification == "rareelite" then
-		UFI_TargetFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite"
-		)
-		UFI_TargetFrame.eliteTexture:Show()
-	else
-		UFI_TargetFrame.eliteTexture:Hide()
-	end
-end
+local UpdateTargetHealth = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameHealth)
+local UpdateTargetPower = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFramePower)
+local UpdateTargetPortrait = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFramePortrait)
+local UpdateTargetName = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameName)
+local UpdateTargetLevel = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameLevel)
+local UpdateTargetClassification = MakeUnitFrameUpdater(GetTargetFrame, UpdateClassificationOverlay)
 
 -------------------------------------------------------------------------------
 -- TARGET OF TARGET FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
 
+local targetOfTargetVisibilityDriver = nil
+local targetOfTargetDriverActive = false
+local pendingTargetOfTargetDriver = nil
+local pendingTargetOfTargetDriverActivation = false
+
+-- When combat lockdown is active we cannot touch the frame's state driver, so we
+-- mimic the visibility change with alpha/mouse toggles and remember the desired state.
+local function ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
+	if not frame then
+		return
+	end
+
+	local fallback = frame.ufCombatFallback
+
+	if InCombatLockdown() then
+		if not fallback then
+			fallback = {
+				alpha = frame:GetAlpha() or 1,
+				mouseEnabled = frame:IsMouseEnabled(),
+			}
+			frame.ufCombatFallback = fallback
+		end
+		fallback.wantsDriver = wantsDriver
+		if not wantsDriver then
+			frame:SetAlpha(0)
+		else
+			frame:SetAlpha(fallback.alpha or 1)
+		end
+		return
+	end
+
+	if wantsDriver then
+		if fallback then
+			frame:SetAlpha(fallback.alpha or 1)
+			local mouseEnabled = fallback.mouseEnabled
+			if mouseEnabled == nil then
+				mouseEnabled = true
+			end
+			frame:EnableMouse(mouseEnabled)
+			frame.ufCombatFallback = nil
+		else
+			frame:SetAlpha(1)
+			frame:EnableMouse(true)
+		end
+	else
+		if not fallback then
+			frame.ufCombatFallback = {
+				alpha = frame:GetAlpha() or 1,
+				mouseEnabled = frame:IsMouseEnabled(),
+			}
+		end
+		frame:SetAlpha(0)
+		frame:EnableMouse(false)
+	end
+end
+
+local function DriverWantsTargetOfTargetShown(driver)
+	return type(driver) == "string" and driver ~= "hide"
+end
+
+-- Construct the visibility macro string that mimics Blizzard's settings dialog so
+-- RegisterStateDriver stays in lock-step with the user's preferred target-of-target mode.
+local function BuildTargetOfTargetVisibilityDriver()
+	if not GetCVarBool("showTargetOfTarget") then
+		return "hide"
+	end
+
+	local mode = tonumber(GetCVar("targetOfTargetMode") or "0") or 0
+	local baseCondition = "[target=targettarget,exists"
+
+	if mode == 1 then -- raid only
+		return baseCondition .. ",group:raid] show; hide"
+	elseif mode == 2 then -- party only
+		return baseCondition .. ",group:party] show; hide"
+	elseif mode == 3 then -- solo only
+		return "[target=targettarget,exists,group:raid] hide; [target=targettarget,exists,group:party] hide; "
+			.. baseCondition
+			.. "] show; hide"
+	elseif mode == 4 then -- raid & party
+		return baseCondition .. ",group:raid] show; [target=targettarget,exists,group:party] show; hide"
+	end
+
+	return baseCondition .. "] show; hide"
+end
+
+local function ApplyTargetOfTargetVisibilityDriver()
+	local driver = BuildTargetOfTargetVisibilityDriver()
+	local wantsDriver = DriverWantsTargetOfTargetShown(driver)
+	local frame = UFI_TargetOfTargetFrame
+
+	local driverChanged = driver ~= targetOfTargetVisibilityDriver
+	local activationChanged = wantsDriver ~= targetOfTargetDriverActive
+
+	if not frame then
+		if driverChanged or activationChanged then
+			pendingTargetOfTargetDriver = driver
+			pendingTargetOfTargetDriverActivation = wantsDriver
+		end
+		return
+	end
+
+	if not driverChanged and not activationChanged then
+		if frame.ufCombatFallback then
+			ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
+		end
+		pendingTargetOfTargetDriver = nil
+		pendingTargetOfTargetDriverActivation = false
+		return
+	end
+
+	if InCombatLockdown() then
+		pendingTargetOfTargetDriver = driver
+		pendingTargetOfTargetDriverActivation = wantsDriver
+		ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
+		return
+	end
+
+	if frame.ufCombatFallback then
+		local previousAlpha = frame.ufCombatFallback.alpha
+		frame:SetAlpha(previousAlpha or 1)
+		frame.ufCombatFallback = nil
+	end
+
+	if targetOfTargetDriverActive then
+		UnregisterStateDriver(frame, "visibility")
+		targetOfTargetDriverActive = false
+	end
+
+	if wantsDriver then
+		frame:EnableMouse(true)
+		frame:SetAlpha(1)
+		RegisterStateDriver(frame, "visibility", driver)
+		targetOfTargetDriverActive = true
+	else
+		frame:EnableMouse(false)
+		frame:SetAlpha(1)
+		frame:Hide()
+		targetOfTargetDriverActive = false
+	end
+
+	targetOfTargetVisibilityDriver = driver
+	pendingTargetOfTargetDriver = nil
+	pendingTargetOfTargetDriverActivation = false
+end
+
+-- Ensure our manual refreshes respect both the secure driver state and Blizzard heuristics.
 local function ShouldShowTargetOfTarget()
+	local frame = UFI_TargetOfTargetFrame
+
+	if frame and frame.ufCombatFallback and not pendingTargetOfTargetDriverActivation then
+		return false
+	end
+
+	if pendingTargetOfTargetDriverActivation then
+		return true
+	end
+
+	if not DriverWantsTargetOfTargetShown(targetOfTargetVisibilityDriver) then
+		return false
+	end
+
+	if not targetOfTargetDriverActive then
+		return false
+	end
+
 	if TargetFrame_ShouldShowTargetOfTarget and TargetFrame then
 		local ok, result = pcall(TargetFrame_ShouldShowTargetOfTarget, TargetFrame)
 		if ok then
@@ -3076,141 +3359,21 @@ local function ShouldShowTargetOfTarget()
 		end
 	end
 
-	if not GetCVarBool("showTargetOfTarget") then
-		return false
-	end
-
-	local mode = tonumber(GetCVar("targetOfTargetMode") or "0") or 0
-	local raidMembers = GetNumRaidMembers() or 0
-	local partyMembers = GetNumPartyMembers() or 0
-	local inRaid = raidMembers > 0
-	local inParty = (not inRaid) and partyMembers > 0
-	local isSolo = (not inRaid) and not inParty
-
-	if mode == 1 then -- Raid
-		return inRaid
-	elseif mode == 2 then -- Party
-		return inParty
-	elseif mode == 3 then -- Solo
-		return isSolo
-	elseif mode == 4 then -- Raid & Party
-		return not isSolo
-	end
-
-	return true -- Treat 0 or any unknown value as Always
+	return true
 end
 
-local function ApplyTargetOfTargetVisibility(shouldShow)
-	if not UFI_TargetOfTargetFrame then
-		return
-	end
-
-	UFI_TargetOfTargetFrame.desiredVisibility = shouldShow
-	UFI_TargetOfTargetFrame:SetAlpha(shouldShow and 1 or 0)
-end
-
-local function UpdateTargetOfTargetHealth()
-	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
-		return
-	end
-
-	local health = UnitHealth("targettarget")
-	local maxHealth = UnitHealthMax("targettarget")
-
-	UFI_TargetOfTargetFrame.healthBar:SetMinMaxValues(0, maxHealth)
-	UFI_TargetOfTargetFrame.healthBar:SetValue(health)
-
-	-- Set color
-	local r, g, b = GetUnitColor("targettarget")
-	UFI_TargetOfTargetFrame.healthBar:SetStatusBarColor(r, g, b)
-	UFI_TargetOfTargetFrame.nameText:SetTextColor(r, g, b)
-end
-
-local function UpdateTargetOfTargetPower()
-	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
-		return
-	end
-
-	local power = UnitPower("targettarget")
-	local maxPower = UnitPowerMax("targettarget")
-	local powerType = UnitPowerType("targettarget")
-
-	if UFI_TargetOfTargetFrame.powerBar then
-		if maxPower == 0 then
-			UFI_TargetOfTargetFrame.powerBar:SetMinMaxValues(0, 1)
-			UFI_TargetOfTargetFrame.powerBar:SetValue(0)
-			return
-		end
-
-		UFI_TargetOfTargetFrame.powerBar:SetMinMaxValues(0, maxPower)
-		UFI_TargetOfTargetFrame.powerBar:SetValue(power)
-
-		local info = PowerBarColor[powerType]
-		if info then
-			UFI_TargetOfTargetFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
-		end
-	end
-end
-
-local function UpdateTargetOfTargetPortrait()
-	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
-		return
-	end
-
-	SetPortraitTexture(UFI_TargetOfTargetFrame.portrait, "targettarget")
-end
-
-local function UpdateTargetOfTargetName()
-	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
-		return
-	end
-
-	UFI_TargetOfTargetFrame.nameText:SetText(UnitName("targettarget"))
-end
-
-local function UpdateTargetOfTargetLevel()
-	if not UFI_TargetOfTargetFrame or not UnitExists("targettarget") then
-		return
-	end
-
-	local level = UnitLevel("targettarget")
-	if level == -1 then
-		-- Boss level (skull)
-		UFI_TargetOfTargetFrame.levelText:SetText("??")
-		UFI_TargetOfTargetFrame.levelText:SetTextColor(1, 0, 0) -- Red for skull
-	else
-		UFI_TargetOfTargetFrame.levelText:SetText(level)
-
-		-- Color based on level difference
-		local playerLevel = UnitLevel("player")
-		local levelDiff = level - playerLevel
-
-		if levelDiff >= 5 then
-			UFI_TargetOfTargetFrame.levelText:SetTextColor(1, 0, 0) -- Red
-		elseif levelDiff >= 3 then
-			UFI_TargetOfTargetFrame.levelText:SetTextColor(1, 0.5, 0) -- Orange
-		elseif levelDiff >= -2 then
-			UFI_TargetOfTargetFrame.levelText:SetTextColor(1, 1, 0) -- Yellow
-		elseif levelDiff >= -4 then
-			UFI_TargetOfTargetFrame.levelText:SetTextColor(0, 1, 0) -- Green
-		else
-			UFI_TargetOfTargetFrame.levelText:SetTextColor(0.5, 0.5, 0.5) -- Gray
-		end
-	end
-end
+local UpdateTargetOfTargetHealth = MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameHealth)
+local UpdateTargetOfTargetPower = MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFramePower)
+local UpdateTargetOfTargetPortrait = MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFramePortrait)
+local UpdateTargetOfTargetName = MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameName)
+local UpdateTargetOfTargetLevel = MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameLevel)
 
 local function UpdateTargetOfTarget()
-	if not UFI_TargetOfTargetFrame then
-		return
-	end
-
-	if not UnitExists("target") or not UnitExists("targettarget") then
-		ApplyTargetOfTargetVisibility(false)
+	if not GetTargetOfTargetFrame() then
 		return
 	end
 
 	if not ShouldShowTargetOfTarget() then
-		ApplyTargetOfTargetVisibility(false)
 		return
 	end
 
@@ -3219,176 +3382,17 @@ local function UpdateTargetOfTarget()
 	UpdateTargetOfTargetPortrait()
 	UpdateTargetOfTargetName()
 	UpdateTargetOfTargetLevel()
-	ApplyTargetOfTargetVisibility(true)
 end
 
 -------------------------------------------------------------------------------
 -- FOCUS FRAME UPDATE FUNCTIONS
 -------------------------------------------------------------------------------
-
-local function UpdateFocusHealth()
-	if not UFI_FocusFrame then
-		return
-	end
-
-	if not UnitExists("focus") then
-		return
-	end
-
-	local health = UnitHealth("focus")
-	local maxHealth = UnitHealthMax("focus")
-
-	if maxHealth == 0 then
-		maxHealth = 1
-	end
-
-	local isDead = UnitIsDead("focus")
-	local isGhost = UnitIsGhost("focus")
-	local isDisconnected = not UnitIsConnected("focus")
-
-	if isDead or isGhost or isDisconnected then
-		health = 0
-	end
-
-	UFI_FocusFrame.healthBar:SetMinMaxValues(0, maxHealth)
-	UFI_FocusFrame.healthBar:SetValue(health)
-
-	-- Set color based on unit type and state
-	local r, g, b = GetUnitColor("focus")
-	UFI_FocusFrame.healthBar:SetStatusBarColor(r, g, b)
-	UFI_FocusFrame.nameText:SetTextColor(r, g, b)
-
-	if isDead then
-		UFI_FocusFrame.deadText:SetText("Dead")
-		UFI_FocusFrame.deadText:Show()
-		UFI_FocusFrame.healthText:Hide()
-	elseif isGhost then
-		UFI_FocusFrame.deadText:SetText("Ghost")
-		UFI_FocusFrame.deadText:Show()
-		UFI_FocusFrame.healthText:Hide()
-	elseif isDisconnected then
-		UFI_FocusFrame.deadText:SetText("Offline")
-		UFI_FocusFrame.deadText:Show()
-		UFI_FocusFrame.healthText:Hide()
-	else
-		UFI_FocusFrame.deadText:Hide()
-		UFI_FocusFrame.healthText:Show()
-		UFI_FocusFrame.healthText:SetText(FormatStatusText(health, maxHealth))
-	end
-end
-
-local function UpdateFocusPower()
-	if not UFI_FocusFrame or not UnitExists("focus") then
-		return
-	end
-
-	local power = UnitPower("focus")
-	local maxPower = UnitPowerMax("focus")
-	local powerType = UnitPowerType("focus")
-
-	-- Hide power bar if focus has no power
-	if maxPower == 0 then
-		UFI_FocusFrame.powerBar:Show()
-		UFI_FocusFrame.powerBar:SetMinMaxValues(0, 1)
-		UFI_FocusFrame.powerBar:SetValue(0)
-		UFI_FocusFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-		UFI_FocusFrame.powerText:SetText("")
-		UFI_FocusFrame.powerText:Hide()
-		return
-	end
-
-	UFI_FocusFrame.powerBar:Show()
-	UFI_FocusFrame.powerText:Show()
-
-	UFI_FocusFrame.powerBar:SetMinMaxValues(0, maxPower)
-	UFI_FocusFrame.powerBar:SetValue(power)
-
-	-- Ensure texture stays in BACKGROUND layer
-	UFI_FocusFrame.powerBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 0)
-
-	-- Set color based on power type
-	local info = PowerBarColor[powerType]
-	if info then
-		UFI_FocusFrame.powerBar:SetStatusBarColor(info.r, info.g, info.b)
-	end
-
-	-- Set text
-	UFI_FocusFrame.powerText:SetText(FormatStatusText(power, maxPower))
-end
-
-local function UpdateFocusPortrait()
-	if not UFI_FocusFrame then
-		return
-	end
-
-	SetPortraitTexture(UFI_FocusFrame.portrait, "focus")
-end
-
-local function UpdateFocusName()
-	if not UFI_FocusFrame then
-		return
-	end
-
-	UFI_FocusFrame.nameText:SetText(UnitName("focus"))
-end
-
-local function UpdateFocusLevel()
-	if not UFI_FocusFrame or not UnitExists("focus") then
-		return
-	end
-
-	local level = UnitLevel("focus")
-	if level == -1 then
-		-- Boss level (skull)
-		UFI_FocusFrame.levelText:SetText("??")
-		UFI_FocusFrame.levelText:SetTextColor(1, 0, 0) -- Red for skull
-	else
-		UFI_FocusFrame.levelText:SetText(level)
-
-		-- Color based on level difference
-		local playerLevel = UnitLevel("player")
-		local levelDiff = level - playerLevel
-
-		if levelDiff >= 5 then
-			UFI_FocusFrame.levelText:SetTextColor(1, 0, 0) -- Red
-		elseif levelDiff >= 3 then
-			UFI_FocusFrame.levelText:SetTextColor(1, 0.5, 0) -- Orange
-		elseif levelDiff >= -2 then
-			UFI_FocusFrame.levelText:SetTextColor(1, 1, 0) -- Yellow
-		elseif levelDiff >= -4 then
-			UFI_FocusFrame.levelText:SetTextColor(0, 1, 0) -- Green
-		else
-			UFI_FocusFrame.levelText:SetTextColor(0.5, 0.5, 0.5) -- Gray
-		end
-	end
-end
-
-local function UpdateFocusClassification()
-	if not UFI_FocusFrame or not UnitExists("focus") then
-		return
-	end
-
-	local classification = UnitClassification("focus")
-
-	if classification == "worldboss" or classification == "elite" then
-		UFI_FocusFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Elite"
-		)
-		UFI_FocusFrame.eliteTexture:Show()
-	elseif classification == "rare" then
-		UFI_FocusFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare"
-		)
-		UFI_FocusFrame.eliteTexture:Show()
-	elseif classification == "rareelite" then
-		UFI_FocusFrame.eliteTexture:SetTexture(
-			"Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite"
-		)
-		UFI_FocusFrame.eliteTexture:Show()
-	else
-		UFI_FocusFrame.eliteTexture:Hide()
-	end
-end
+local UpdateFocusHealth = MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFrameHealth)
+local UpdateFocusPower = MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFramePower)
+local UpdateFocusPortrait = MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFramePortrait)
+local UpdateFocusName = MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFrameName)
+local UpdateFocusLevel = MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFrameLevel)
+local UpdateFocusClassification = MakeUnitFrameUpdater(GetFocusFrame, UpdateClassificationOverlay)
 
 local function HideAuraRows(frame)
 	if not frame then
@@ -3397,19 +3401,29 @@ local function HideAuraRows(frame)
 
 	if frame.buffs then
 		for i = 1, #frame.buffs do
-			frame.buffs[i]:Hide()
+			local iconFrame = frame.buffs[i]
+			if iconFrame.cooldown then
+				iconFrame.cooldown:Hide()
+			end
+			if iconFrame.count then
+				iconFrame.count:Hide()
+			end
+			iconFrame:Hide()
 		end
 	end
 
 	if frame.debuffs then
 		for i = 1, #frame.debuffs do
-			frame.debuffs[i]:Hide()
+			local iconFrame = frame.debuffs[i]
+			if iconFrame.cooldown then
+				iconFrame.cooldown:Hide()
+			end
+			if iconFrame.count then
+				iconFrame.count:Hide()
+			end
+			iconFrame:Hide()
 		end
 	end
-end
-
-local function SortByRemainingTime(a, b)
-	return a.remainingTime < b.remainingTime
 end
 
 local function UpdateUnitAuras(unit, frame)
@@ -3423,128 +3437,138 @@ local function UpdateUnitAuras(unit, frame)
 		return
 	end
 
-	local now = GetTime()
-
-	local allBuffs = {}
-	for i = 1, 40 do
-		local name, _, icon, count, _, duration, expirationTime = UnitBuff(unit, i)
-		if not name then
-			break
-		end
-
-		local remainingTime = 999999
-		if duration and duration > 0 and expirationTime then
-			remainingTime = expirationTime - now
-		end
-
-		allBuffs[#allBuffs + 1] = {
-			icon = icon,
-			count = count,
-			duration = duration,
-			expirationTime = expirationTime,
-			remainingTime = remainingTime,
-		}
-	end
-
-	table.sort(allBuffs, SortByRemainingTime)
-
 	local buffsShown = 0
-	if frame.buffs then
-		for i = 1, #frame.buffs do
-			local buffFrame = frame.buffs[i]
-			local data = allBuffs[i]
-			if data then
-				buffFrame.icon:SetTexture(data.icon)
-				if data.duration and data.duration > 0 and data.expirationTime then
-					buffFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
-				end
-				if data.count and data.count > 1 then
-					buffFrame.count:SetText(data.count)
-					buffFrame.count:Show()
-				else
-					buffFrame.count:Hide()
-				end
-				buffFrame:Show()
-				buffsShown = buffsShown + 1
-			else
-				buffFrame:Hide()
+	local buffFrames = frame.buffs
+	if buffFrames and #buffFrames > 0 then
+		local maxBuffs = #buffFrames
+		for index = 1, maxBuffs do
+			local iconFrame = buffFrames[index]
+			if iconFrame.cooldown then
+				iconFrame.cooldown:Hide()
 			end
-		end
-	end
-
-	local playerDebuffs = {}
-	for i = 1, 40 do
-		local name, _, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff(unit, i)
-		if not name then
-			break
+			if iconFrame.count then
+				iconFrame.count:Hide()
+			end
+			iconFrame:Hide()
 		end
 
-		if caster == "player" or caster == "pet" or caster == "vehicle" then
-			local remainingTime = 999999
+		for auraIndex = 1, 40 do
+			local name, _, icon, count, _, duration, expirationTime = UnitBuff(unit, auraIndex)
+			if not name then
+				break
+			end
+
+			buffsShown = buffsShown + 1
+			if buffsShown > maxBuffs then
+				buffsShown = maxBuffs
+				break
+			end
+
+			local iconFrame = buffFrames[buffsShown]
+			iconFrame.icon:SetTexture(icon)
 			if duration and duration > 0 and expirationTime then
-				remainingTime = expirationTime - now
+				iconFrame.cooldown:SetCooldown(expirationTime - duration, duration)
+				iconFrame.cooldown:Show()
+			else
+				iconFrame.cooldown:Hide()
 			end
-
-			playerDebuffs[#playerDebuffs + 1] = {
-				icon = icon,
-				count = count,
-				debuffType = debuffType,
-				duration = duration,
-				expirationTime = expirationTime,
-				remainingTime = remainingTime,
-			}
+			if count and count > 1 then
+				iconFrame.count:SetText(count)
+				iconFrame.count:Show()
+			else
+				iconFrame.count:Hide()
+			end
+			iconFrame:Show()
 		end
 	end
 
-	table.sort(playerDebuffs, SortByRemainingTime)
+	local debuffFrames = frame.debuffs
+	local debuffsShown = 0
+	if debuffFrames and #debuffFrames > 0 then
+		local maxDebuffs = #debuffFrames
+		for index = 1, maxDebuffs do
+			local iconFrame = debuffFrames[index]
+			if iconFrame.cooldown then
+				iconFrame.cooldown:Hide()
+			end
+			if iconFrame.count then
+				iconFrame.count:Hide()
+			end
+			iconFrame:Hide()
+		end
+
+		for auraIndex = 1, 40 do
+			local name, _, icon, count, debuffType, duration, expirationTime, caster = UnitDebuff(unit, auraIndex)
+			if not name then
+				break
+			end
+
+			if caster == "player" or caster == "pet" or caster == "vehicle" then
+				debuffsShown = debuffsShown + 1
+				if debuffsShown > maxDebuffs then
+					debuffsShown = maxDebuffs
+					break
+				end
+
+				local iconFrame = debuffFrames[debuffsShown]
+				iconFrame.icon:SetTexture(icon)
+				local color = DebuffTypeColor[debuffType or "none"] or DebuffTypeColor["none"]
+				iconFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+				iconFrame.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+				iconFrame.border:SetVertexColor(color[1], color[2], color[3])
+
+				if duration and duration > 0 and expirationTime then
+					iconFrame.cooldown:SetCooldown(expirationTime - duration, duration)
+					iconFrame.cooldown:Show()
+				else
+					iconFrame.cooldown:Hide()
+				end
+				if count and count > 1 then
+					iconFrame.count:SetText(count)
+					iconFrame.count:Show()
+				else
+					iconFrame.count:Hide()
+				end
+				iconFrame:Show()
+			end
+		end
+
+		for index = debuffsShown + 1, maxDebuffs do
+			local iconFrame = debuffFrames[index]
+			iconFrame.cooldown:Hide()
+			iconFrame.count:Hide()
+			iconFrame:Hide()
+		end
+	end
 
 	local desiredOrder = buffsShown > 0 and 2 or 1
 	if frame.debuffs and frame.debuffs.currentOrder ~= desiredOrder then
 		PositionAuraRow(frame.debuffs, frame, frame.mirrored, "below", desiredOrder)
 	end
-
-	if frame.debuffs then
-		for i = 1, #frame.debuffs do
-			local debuffFrame = frame.debuffs[i]
-			local data = playerDebuffs[i]
-			if data then
-				debuffFrame.icon:SetTexture(data.icon)
-				local color = DebuffTypeColor[data.debuffType or "none"] or DebuffTypeColor["none"]
-				debuffFrame.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-				debuffFrame.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-				debuffFrame.border:SetVertexColor(color[1], color[2], color[3])
-
-				if data.duration and data.duration > 0 and data.expirationTime then
-					debuffFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
-				end
-				if data.count and data.count > 1 then
-					debuffFrame.count:SetText(data.count)
-					debuffFrame.count:Show()
-				else
-					debuffFrame.count:Hide()
-				end
-				debuffFrame:Show()
-			else
-				debuffFrame:Hide()
-			end
-		end
-	end
 end
 
-local function UpdateFocusAuras()
-	UpdateUnitAuras("focus", UFI_FocusFrame)
-end
+local UpdateFocusAuras = MakeUnitFrameUpdater(GetFocusFrame, function(frame)
+	UpdateUnitAuras("focus", frame)
+end)
 
 local function UpdatePlayerAuras()
 	if not UFI_PlayerFrame or not UFI_PlayerFrame.selfBuffs then
 		return
 	end
 
-	local now = GetTime()
-	local selfBuffs = {}
+	local icons = UFI_PlayerFrame.selfBuffs
+	local iconCount = #icons
+	local shown = 0
 
-	for i = 1, 40 do
-		local name, _, icon, count, _, duration, expirationTime, caster, _, _, spellId = UnitBuff("player", i)
+	for index = 1, iconCount do
+		local iconFrame = icons[index]
+		iconFrame.cooldown:Hide()
+		iconFrame.count:Hide()
+		iconFrame:Hide()
+	end
+
+	for auraIndex = 1, 40 do
+		local name, _, icon, count, _, duration, expirationTime, caster, _, _, spellId = UnitBuff("player", auraIndex)
 		if not name then
 			break
 		end
@@ -3553,38 +3577,22 @@ local function UpdatePlayerAuras()
 			(caster == "player" or caster == "pet" or caster == "vehicle")
 			and not (spellId and SELF_BUFF_EXCLUSIONS[spellId])
 		then
-			local remainingTime = 999999
-			if duration and duration > 0 and expirationTime then
-				remainingTime = expirationTime - now
+			shown = shown + 1
+			if shown > iconCount then
+				shown = iconCount
+				break
 			end
 
-			selfBuffs[#selfBuffs + 1] = {
-				icon = icon,
-				count = count,
-				duration = duration,
-				expirationTime = expirationTime,
-				remainingTime = remainingTime,
-			}
-		end
-	end
-
-	table.sort(selfBuffs, SortByRemainingTime)
-
-	for i = 1, #UFI_PlayerFrame.selfBuffs do
-		local iconFrame = UFI_PlayerFrame.selfBuffs[i]
-		local data = selfBuffs[i]
-
-		if data then
-			iconFrame.icon:SetTexture(data.icon)
-			if data.duration and data.duration > 0 and data.expirationTime then
-				iconFrame.cooldown:SetCooldown(data.expirationTime - data.duration, data.duration)
+			local iconFrame = icons[shown]
+			iconFrame.icon:SetTexture(icon)
+			if duration and duration > 0 and expirationTime then
+				iconFrame.cooldown:SetCooldown(expirationTime - duration, duration)
 				iconFrame.cooldown:Show()
 			else
 				iconFrame.cooldown:Hide()
 			end
-
-			if data.count and data.count > 1 then
-				iconFrame.count:SetText(data.count)
+			if count and count > 1 then
+				iconFrame.count:SetText(count)
 				iconFrame.count:Show()
 			else
 				iconFrame.count:Hide()
@@ -3592,28 +3600,33 @@ local function UpdatePlayerAuras()
 
 			iconFrame.border:SetVertexColor(1, 1, 1)
 			iconFrame:Show()
-		else
-			iconFrame.cooldown:Hide()
-			iconFrame.count:Hide()
-			iconFrame:Hide()
 		end
+	end
+
+	for index = shown + 1, iconCount do
+		local iconFrame = icons[index]
+		iconFrame.cooldown:Hide()
+		iconFrame.count:Hide()
+		iconFrame:Hide()
 	end
 end
 
 local function UpdateFocusFrame()
-	if not UFI_FocusFrame then
+	if not GetFocusFrame() then
 		return
 	end
 
-	if UnitExists("focus") then
-		UpdateFocusHealth()
-		UpdateFocusPower()
-		UpdateFocusPortrait()
-		UpdateFocusName()
-		UpdateFocusLevel()
-		UpdateFocusClassification()
-		UpdateFocusAuras()
+	if not UnitExists("focus") then
+		return
 	end
+
+	UpdateFocusHealth()
+	UpdateFocusPower()
+	UpdateFocusPortrait()
+	UpdateFocusName()
+	UpdateFocusLevel()
+	UpdateFocusClassification()
+	UpdateFocusAuras()
 end
 
 -------------------------------------------------------------------------------
@@ -3685,353 +3698,409 @@ eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
-	if event == "PLAYER_LOGIN" then
-		-- Initialize database
-		InitializeDatabase()
+local function HandlePlayerLogin()
+	InitializeDatabase()
 
-		-- Create frames on login
-		UFI_PlayerFrame = CreatePlayerFrame()
-		UFI_TargetFrame = CreateTargetFrame()
-		UFI_FocusFrame = CreateFocusFrame()
-		UFI_TargetOfTargetFrame = CreateTargetOfTargetFrame()
-		UFI_BossFrameAnchor = CreateBossFrames()
+	UFI_PlayerFrame = CreatePlayerFrame()
+	UFI_TargetFrame = CreateTargetFrame()
+	UFI_FocusFrame = CreateFocusFrame()
+	UFI_TargetOfTargetFrame = CreateTargetOfTargetFrame()
+	UFI_BossFrameAnchor = CreateBossFrames()
 
-		-- Hide default Blizzard frames
-		PlayerFrame:UnregisterAllEvents()
-		PlayerFrame:Hide()
-		PlayerFrame:SetAlpha(0)
+	ApplyTargetOfTargetVisibilityDriver()
 
-		TargetFrame:UnregisterAllEvents()
-		TargetFrame:Hide()
-		TargetFrame:SetAlpha(0)
+	PlayerFrame:UnregisterAllEvents()
+	-- Hide Blizzard's secure frames entirely so they do not fire events or taint our replacements.
+	PlayerFrame:Hide()
+	PlayerFrame:SetAlpha(0)
 
-		FocusFrame:UnregisterAllEvents()
-		FocusFrame:Hide()
-		FocusFrame:SetAlpha(0)
+	TargetFrame:UnregisterAllEvents()
+	TargetFrame:Hide()
+	TargetFrame:SetAlpha(0)
 
-		for index = 1, MAX_BOSS_FRAMES do
-			local defaultBossFrame = _G["Boss" .. index .. "TargetFrame"]
-			if defaultBossFrame then
-				defaultBossFrame:UnregisterAllEvents()
-				defaultBossFrame:Hide()
-				defaultBossFrame:SetAlpha(0)
+	FocusFrame:UnregisterAllEvents()
+	FocusFrame:Hide()
+	FocusFrame:SetAlpha(0)
+
+	for index = 1, MAX_BOSS_FRAMES do
+		local defaultBossFrame = _G["Boss" .. index .. "TargetFrame"]
+		if defaultBossFrame then
+			defaultBossFrame:UnregisterAllEvents()
+			defaultBossFrame:Hide()
+			defaultBossFrame:SetAlpha(0)
+		end
+	end
+
+	if BossTargetFrameContainer then
+		BossTargetFrameContainer:UnregisterAllEvents()
+		BossTargetFrameContainer:Hide()
+		BossTargetFrameContainer:SetAlpha(0)
+	end
+
+	if TargetFrameToT then
+		TargetFrameToT:UnregisterAllEvents()
+		TargetFrameToT:Hide()
+		TargetFrameToT:SetAlpha(0)
+	end
+
+	ApplyPosition("UFI_PlayerFrame")
+	ApplyPosition("UFI_TargetFrame")
+	ApplyPosition("UFI_TargetOfTargetFrame")
+	ApplyPosition("UFI_FocusFrame")
+	ApplyPosition("UFI_BossFrameAnchor")
+
+	CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
+	CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
+	if UFI_TargetOfTargetFrame then
+		CreateOverlay(UFI_TargetOfTargetFrame, "UFI_TargetOfTargetFrame")
+	end
+	CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
+	if UFI_BossFrameAnchor then
+		CreateOverlay(UFI_BossFrameAnchor, "UFI_BossFrameAnchor")
+	end
+
+	-- Interface options still call the legacy SetCVar API, so hook it to react without polling.
+	hooksecurefunc("SetCVar", function(name, value)
+		if name == "statusTextPercentage" then
+			UpdatePlayerHealth()
+			UpdatePlayerPower()
+			if UnitExists("target") then
+				UpdateTargetHealth()
+				UpdateTargetPower()
 			end
-		end
-
-		if BossTargetFrameContainer then
-			BossTargetFrameContainer:UnregisterAllEvents()
-			BossTargetFrameContainer:Hide()
-			BossTargetFrameContainer:SetAlpha(0)
-		end
-
-		-- Also hide target of target frame if it exists
-		if TargetFrameToT then
-			TargetFrameToT:UnregisterAllEvents()
-			TargetFrameToT:Hide()
-			TargetFrameToT:SetAlpha(0)
-		end
-
-		-- Apply saved positions FIRST
-		ApplyPosition("UFI_PlayerFrame")
-		ApplyPosition("UFI_TargetFrame")
-		ApplyPosition("UFI_TargetOfTargetFrame")
-		ApplyPosition("UFI_FocusFrame")
-		ApplyPosition("UFI_BossFrameAnchor")
-
-		-- Create overlays for movable frames AFTER positioning
-		CreateOverlay(UFI_PlayerFrame, "UFI_PlayerFrame")
-		CreateOverlay(UFI_TargetFrame, "UFI_TargetFrame")
-		if UFI_TargetOfTargetFrame then
-			CreateOverlay(UFI_TargetOfTargetFrame, "UFI_TargetOfTargetFrame")
-		end
-		CreateOverlay(UFI_FocusFrame, "UFI_FocusFrame")
-		if UFI_BossFrameAnchor then
-			CreateOverlay(UFI_BossFrameAnchor, "UFI_BossFrameAnchor")
-		end
-
-		-- Hook into SetCVar to detect changes from Interface Options
-		-- The Interface Options UI uses the old SetCVar() function which doesn't
-		-- trigger CVAR_UPDATE events. Only C_CVar.SetCVar() triggers that event.
-		-- This hook allows us to detect changes immediately without polling.
-		hooksecurefunc("SetCVar", function(name, value)
-			if name == "statusTextPercentage" then
-				-- Update all visible frames when percentage display setting changes
-				UpdatePlayerHealth()
-				UpdatePlayerPower()
-				if UnitExists("target") then
-					UpdateTargetHealth()
-					UpdateTargetPower()
-				end
-				if UnitExists("focus") then
-					UpdateFocusHealth()
-					UpdateFocusPower()
-				end
-				UpdateAllBossFrames()
-			elseif name == "showTargetOfTarget" or name == "targetOfTargetMode" then
-				UpdateTargetOfTarget()
+			if UnitExists("focus") then
+				UpdateFocusHealth()
+				UpdateFocusPower()
 			end
-		end)
-
-		-- Restore unlocked state if it was unlocked
-		if UnitFramesImprovedDB.isUnlocked and not InCombatLockdown() then
-			UnlockFrames()
+			UpdateAllBossFrames()
+		elseif name == "showTargetOfTarget" or name == "targetOfTargetMode" then
+			ApplyTargetOfTargetVisibilityDriver()
+			UpdateTargetOfTarget()
 		end
+	end)
 
-		-- Display welcome message
-		Print("|cff00ff00UnitFramesImproved v1.0.0 loaded!|r Type |cffffcc00/ufi help|r for commands.")
+	if UnitFramesImprovedDB.isUnlocked and not InCombatLockdown() then
+		UnlockFrames()
+	end
 
-		-- Initial updates
+	Print("|cff00ff00UnitFramesImproved v" .. ADDON_VERSION .. " loaded!|r Type |cffffcc00/ufi help|r for commands.")
+
+	UpdatePlayerHealth()
+	UpdatePlayerPower()
+	UpdatePlayerPortrait()
+	UpdatePlayerName()
+	UpdatePlayerLevel()
+	UpdatePlayerAuras()
+	UpdatePlayerThreat()
+
+	UpdateTargetOfTarget()
+
+	if UnitExists("focus") then
+		UpdateFocusFrame()
+	end
+
+	UpdateAllBossFrames()
+end
+
+local function HandlePlayerTargetChanged()
+	UpdateTargetHealth()
+	UpdateTargetPower()
+	UpdateTargetPortrait()
+	UpdateTargetName()
+	UpdateTargetLevel()
+	UpdateTargetClassification()
+	UpdateTargetAuras()
+	UpdateTargetOfTarget()
+	RefreshCastBar("target")
+	UpdatePlayerThreat()
+end
+
+local function HandlePlayerEnteringWorld()
+	ApplyTargetOfTargetVisibilityDriver()
+	UpdateTargetOfTarget()
+	UpdateAllBossFrames()
+	UpdatePlayerThreat()
+end
+
+local function HandlePlayerFocusChanged()
+	UpdateFocusFrame()
+	RefreshCastBar("focus")
+end
+
+local function HandleThreatEvent(_, unit)
+	if not unit or unit == "player" then
+		UpdatePlayerThreat()
+	end
+end
+
+local function HandleUnitHealthEvent(_, unit)
+	if unit == "player" then
 		UpdatePlayerHealth()
+	elseif unit == "target" then
+		UpdateTargetHealth()
+	elseif unit == "focus" then
+		UpdateFocusHealth()
+	elseif IsBossUnit(unit) then
+		UpdateBossHealth(unit)
+	end
+end
+
+local function HandleUnitPowerEvent(_, unit)
+	if unit == "player" then
 		UpdatePlayerPower()
+	elseif unit == "target" then
+		UpdateTargetPower()
+	elseif unit == "focus" then
+		UpdateFocusPower()
+	elseif IsBossUnit(unit) then
+		UpdateBossPower(unit)
+	end
+
+	if UnitIsUnit(unit, "targettarget") then
+		UpdateTargetOfTargetPower()
+	end
+end
+
+local function HandleUnitPortraitEvent(_, unit)
+	if unit == "player" then
 		UpdatePlayerPortrait()
+	elseif unit == "target" then
+		UpdateTargetPortrait()
+	elseif unit == "focus" then
+		UpdateFocusPortrait()
+	elseif IsBossUnit(unit) then
+		UpdateBossPortrait(unit)
+	end
+end
+
+local function HandleUnitNameOrLevelEvent(_, unit)
+	if unit == "player" then
 		UpdatePlayerName()
 		UpdatePlayerLevel()
-		UpdatePlayerAuras()
-		UpdatePlayerThreat()
-
-		UpdateTargetOfTarget()
-
-		-- Update focus frame if focus exists
-		if UnitExists("focus") then
-			UpdateFocusFrame()
-		end
-
-		UpdateAllBossFrames()
-	elseif event == "PLAYER_TARGET_CHANGED" then
-		UpdateTargetHealth()
-		UpdateTargetPower()
-		UpdateTargetPortrait()
+	elseif unit == "target" then
 		UpdateTargetName()
 		UpdateTargetLevel()
 		UpdateTargetClassification()
+	elseif unit == "focus" then
+		UpdateFocusName()
+		UpdateFocusLevel()
+		UpdateFocusClassification()
+	elseif unit == "targettarget" then
+		UpdateTargetOfTargetName()
+		UpdateTargetOfTargetLevel()
+	elseif IsBossUnit(unit) then
+		UpdateBossName(unit)
+		UpdateBossLevel(unit)
+		UpdateBossClassification(unit)
+	end
+end
+
+local function HandleUnitClassificationChanged(_, unit)
+	if IsBossUnit(unit) then
+		UpdateBossClassification(unit)
+	end
+end
+
+local function HandleUnitAuraEvent(_, unit)
+	if unit == "player" then
+		UpdatePlayerAuras()
+	elseif unit == "target" then
 		UpdateTargetAuras()
+	elseif unit == "focus" then
+		UpdateFocusAuras()
+	end
+end
+
+local function HandleUnitTargetEvent(_, unit)
+	if unit == "target" then
 		UpdateTargetOfTarget()
-		RefreshCastBar("target")
-		UpdatePlayerThreat()
-	elseif event == "PLAYER_ENTERING_WORLD" then
-		UpdateTargetOfTarget()
-		UpdateAllBossFrames()
-		UpdatePlayerThreat()
-	elseif event == "PLAYER_FOCUS_CHANGED" then
-		UpdateFocusFrame()
-		RefreshCastBar("focus")
-	elseif event == "UNIT_THREAT_SITUATION_UPDATE" then
-		local unit = ...
-		if not unit or unit == "player" then
-			UpdatePlayerThreat()
-		end
-	elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
-		UpdatePlayerThreat()
-		UpdatePlayerLevel()
-	elseif event == "UNIT_HEALTH" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerHealth()
-		elseif unit == "target" then
-			UpdateTargetHealth()
-		elseif unit == "focus" then
-			UpdateFocusHealth()
-		elseif IsBossUnit(unit) then
-			UpdateBossHealth(unit)
-		end
-	elseif event == "UNIT_MAXHEALTH" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerHealth()
-		elseif unit == "target" then
-			UpdateTargetHealth()
-		elseif unit == "focus" then
-			UpdateFocusHealth()
-		elseif IsBossUnit(unit) then
-			UpdateBossHealth(unit)
-		end
-	elseif
-		event == "UNIT_POWER_FREQUENT"
-		or event == "UNIT_POWER_UPDATE"
-		or event == "UNIT_MANA"
-		or event == "UNIT_RAGE"
-		or event == "UNIT_ENERGY"
-		or event == "UNIT_FOCUS"
-		or event == "UNIT_RUNIC_POWER"
-	then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerPower()
-		elseif unit == "target" then
-			UpdateTargetPower()
-		elseif unit == "focus" then
-			UpdateFocusPower()
-		elseif IsBossUnit(unit) then
-			UpdateBossPower(unit)
-		end
+	end
+end
 
-		if UnitIsUnit(unit, "targettarget") then
-			UpdateTargetOfTargetPower()
-		end
-	elseif
-		event == "UNIT_MAXPOWER"
-		or event == "UNIT_MAXMANA"
-		or event == "UNIT_MAXRAGE"
-		or event == "UNIT_MAXENERGY"
-		or event == "UNIT_MAXFOCUS"
-		or event == "UNIT_MAXRUNIC_POWER"
-	then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerPower()
-		elseif unit == "target" then
-			UpdateTargetPower()
-		elseif unit == "focus" then
-			UpdateFocusPower()
-		elseif IsBossUnit(unit) then
-			UpdateBossPower(unit)
-		end
+local function HandleUnitTargetableChanged(_, unit)
+	if IsBossUnit(unit) then
+		UpdateBossFrame(unit)
+	end
+end
 
-		if UnitIsUnit(unit, "targettarget") then
-			UpdateTargetOfTargetPower()
-		end
-	elseif event == "UNIT_PORTRAIT_UPDATE" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerPortrait()
-		elseif unit == "target" then
-			UpdateTargetPortrait()
-		elseif unit == "focus" then
-			UpdateFocusPortrait()
-		elseif IsBossUnit(unit) then
-			UpdateBossPortrait(unit)
-		end
-	elseif event == "UNIT_NAME_UPDATE" or event == "UNIT_LEVEL" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerName()
-			UpdatePlayerLevel()
-		elseif unit == "target" then
-			UpdateTargetName()
-			UpdateTargetLevel()
-			UpdateTargetClassification()
-		elseif unit == "focus" then
-			UpdateFocusName()
-			UpdateFocusLevel()
-			UpdateFocusClassification()
-		elseif unit == "targettarget" then
-			UpdateTargetOfTargetName()
-			UpdateTargetOfTargetLevel()
-		elseif IsBossUnit(unit) then
-			UpdateBossFrame(unit)
-		end
-	elseif event == "UNIT_CLASSIFICATION_CHANGED" then
-		local unit = ...
-		if IsBossUnit(unit) then
-			UpdateBossFrame(unit)
-		end
-	elseif event == "UNIT_DISPLAYPOWER" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerPower()
-		elseif unit == "target" then
-			UpdateTargetPower()
-		elseif unit == "focus" then
-			UpdateFocusPower()
-		elseif IsBossUnit(unit) then
-			UpdateBossPower(unit)
-		end
+local function HandleEncounterEvent()
+	UpdateAllBossFrames()
+end
 
-		if UnitIsUnit(unit, "targettarget") then
-			UpdateTargetOfTargetPower()
-		end
-	elseif event == "UNIT_AURA" then
-		local unit = ...
-		if unit == "player" then
-			UpdatePlayerAuras()
-		elseif unit == "target" then
-			UpdateTargetAuras()
-		elseif unit == "focus" then
-			UpdateFocusAuras()
-		end
-	elseif event == "UNIT_TARGET" then
-		local unit = ...
-		if unit == "target" then
-			UpdateTargetOfTarget()
-		end
-	elseif event == "UNIT_TARGETABLE_CHANGED" then
-		local unit = ...
-		if IsBossUnit(unit) then
-			UpdateBossFrame(unit)
-		end
-	elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" or event == "ENCOUNTER_END" then
-		UpdateAllBossFrames()
-	elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
-		UpdateTargetOfTarget()
-	elseif event == "PLAYER_UPDATE_RESTING" then
-		UpdatePlayerLevel()
+local function HandleRosterEvent()
+	ApplyTargetOfTargetVisibilityDriver()
+	UpdateTargetOfTarget()
+end
 
-	-- Cast bar events
-	elseif event == "UNIT_SPELLCAST_START" then
-		local unit = ...
-		BeginCast(unit, false)
-	elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
-		local unit = ...
-		BeginCast(unit, true)
-	elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-		local unit = ...
-		StopCast(unit)
-	elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
-		local unit = ...
-		FailCast(unit, event == "UNIT_SPELLCAST_INTERRUPTED")
-	elseif event == "UNIT_SPELLCAST_DELAYED" then
-		local unit = ...
-		AdjustCastTiming(unit, false)
-	elseif event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
-		local unit = ...
-		AdjustCastTiming(unit, true)
-	elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" then
-		local unit = ...
-		local castBar = castBarsByUnit[unit]
-		if castBar then
-			castBar.notInterruptible = false
-		end
-	elseif event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
-		local unit = ...
-		local castBar = castBarsByUnit[unit]
-		if castBar then
-			castBar.notInterruptible = true
-		end
-	elseif event == "PLAYER_LOGOUT" then
-		if isUnlocked then
-			return
-		end
+local function HandlePlayerUpdateResting()
+	UpdatePlayerLevel()
+end
 
-		-- Save all frame positions before logout
-		for frameName, _ in pairs(defaultPositions) do
-			local frame = _G[frameName]
-			if frame then
-				local point, relativeToFrame, relativePoint, x, y = frame:GetPoint()
-				if point then
-					local relativeToName
-					if relativeToFrame then
-						relativeToName = relativeToFrame:GetName()
-						if not relativeToName and relativeToFrame == UIParent then
-							relativeToName = "UIParent"
-						end
+local function HandleSpellcastStart(_, unit)
+	BeginCast(unit, false)
+end
+
+local function HandleSpellcastChannelStart(_, unit)
+	BeginCast(unit, true)
+end
+
+local function HandleSpellcastStop(_, unit)
+	StopCast(unit)
+end
+
+local function HandleSpellcastFailed(_, unit)
+	FailCast(unit, false)
+end
+
+local function HandleSpellcastInterrupted(_, unit)
+	FailCast(unit, true)
+end
+
+local function HandleSpellcastDelayed(_, unit)
+	AdjustCastTiming(unit, false)
+end
+
+local function HandleSpellcastChannelUpdate(_, unit)
+	AdjustCastTiming(unit, true)
+end
+
+local function HandleSpellcastInterruptible(_, unit)
+	local castBar = castBarsByUnit[unit]
+	if castBar then
+		castBar.notInterruptible = false
+	end
+end
+
+local function HandleSpellcastNotInterruptible(_, unit)
+	local castBar = castBarsByUnit[unit]
+	if castBar then
+		castBar.notInterruptible = true
+	end
+end
+
+local function HandlePlayerLogout()
+	if next(unsavedPositions) then
+		for frameName, pos in pairs(unsavedPositions) do
+			SavePosition(frameName, pos.point, pos.relativePoint, pos.x, pos.y, pos.relativeTo)
+		end
+	end
+
+	for frameName in pairs(defaultPositions) do
+		local frame = _G[frameName]
+		if frame then
+			local point, relativeToFrame, relativePoint, x, y = frame:GetPoint()
+			if point then
+				local relativeToName
+				if relativeToFrame then
+					relativeToName = relativeToFrame:GetName()
+					if not relativeToName and relativeToFrame == UIParent then
+						relativeToName = "UIParent"
 					end
-					SavePosition(frameName, point, relativePoint, x, y, relativeToName)
 				end
+				SavePosition(frameName, point, relativePoint, x, y, relativeToName)
 			end
 		end
-	elseif event == "PLAYER_REGEN_DISABLED" then
-		-- Combat started
-		OnCombatStart()
-	elseif event == "PLAYER_REGEN_ENABLED" then
-		-- Combat ended
-		OnCombatEnd()
-		UpdateTargetOfTarget()
-		UpdateAllBossFrames()
+	end
+end
+
+local function HandlePlayerRegenDisabled()
+	UpdatePlayerThreat()
+	UpdatePlayerLevel()
+	OnCombatStart()
+end
+
+local function HandlePlayerRegenEnabled()
+	UpdatePlayerThreat()
+	UpdatePlayerLevel()
+	OnCombatEnd()
+	ApplyTargetOfTargetVisibilityDriver()
+	UpdateTargetOfTarget()
+	UpdateAllBossFrames()
+end
+
+local EVENT_HANDLERS = {
+	PLAYER_LOGIN = function()
+		HandlePlayerLogin()
+	end,
+	PLAYER_LOGOUT = function()
+		HandlePlayerLogout()
+	end,
+	PLAYER_TARGET_CHANGED = function()
+		HandlePlayerTargetChanged()
+	end,
+	PLAYER_ENTERING_WORLD = function()
+		HandlePlayerEnteringWorld()
+	end,
+	PLAYER_FOCUS_CHANGED = function()
+		HandlePlayerFocusChanged()
+	end,
+	PLAYER_UPDATE_RESTING = function()
+		HandlePlayerUpdateResting()
+	end,
+	PLAYER_REGEN_DISABLED = function()
+		HandlePlayerRegenDisabled()
+	end,
+	PLAYER_REGEN_ENABLED = function()
+		HandlePlayerRegenEnabled()
+	end,
+	UNIT_THREAT_SITUATION_UPDATE = HandleThreatEvent,
+	UNIT_HEALTH = HandleUnitHealthEvent,
+	UNIT_MAXHEALTH = HandleUnitHealthEvent,
+	UNIT_POWER_FREQUENT = HandleUnitPowerEvent,
+	UNIT_POWER_UPDATE = HandleUnitPowerEvent,
+	UNIT_MANA = HandleUnitPowerEvent,
+	UNIT_RAGE = HandleUnitPowerEvent,
+	UNIT_ENERGY = HandleUnitPowerEvent,
+	UNIT_FOCUS = HandleUnitPowerEvent,
+	UNIT_RUNIC_POWER = HandleUnitPowerEvent,
+	UNIT_MAXPOWER = HandleUnitPowerEvent,
+	UNIT_MAXMANA = HandleUnitPowerEvent,
+	UNIT_MAXRAGE = HandleUnitPowerEvent,
+	UNIT_MAXENERGY = HandleUnitPowerEvent,
+	UNIT_MAXFOCUS = HandleUnitPowerEvent,
+	UNIT_MAXRUNIC_POWER = HandleUnitPowerEvent,
+	UNIT_DISPLAYPOWER = HandleUnitPowerEvent,
+	UNIT_PORTRAIT_UPDATE = HandleUnitPortraitEvent,
+	UNIT_NAME_UPDATE = HandleUnitNameOrLevelEvent,
+	UNIT_LEVEL = HandleUnitNameOrLevelEvent,
+	UNIT_CLASSIFICATION_CHANGED = HandleUnitClassificationChanged,
+	UNIT_AURA = HandleUnitAuraEvent,
+	UNIT_TARGET = HandleUnitTargetEvent,
+	UNIT_TARGETABLE_CHANGED = HandleUnitTargetableChanged,
+	INSTANCE_ENCOUNTER_ENGAGE_UNIT = function()
+		HandleEncounterEvent()
+	end,
+	ENCOUNTER_END = function()
+		HandleEncounterEvent()
+	end,
+	PARTY_MEMBERS_CHANGED = function()
+		HandleRosterEvent()
+	end,
+	RAID_ROSTER_UPDATE = function()
+		HandleRosterEvent()
+	end,
+	UNIT_SPELLCAST_START = HandleSpellcastStart,
+	UNIT_SPELLCAST_CHANNEL_START = HandleSpellcastChannelStart,
+	UNIT_SPELLCAST_STOP = HandleSpellcastStop,
+	UNIT_SPELLCAST_CHANNEL_STOP = HandleSpellcastStop,
+	UNIT_SPELLCAST_FAILED = HandleSpellcastFailed,
+	UNIT_SPELLCAST_INTERRUPTED = HandleSpellcastInterrupted,
+	UNIT_SPELLCAST_DELAYED = HandleSpellcastDelayed,
+	UNIT_SPELLCAST_CHANNEL_UPDATE = HandleSpellcastChannelUpdate,
+	UNIT_SPELLCAST_INTERRUPTIBLE = HandleSpellcastInterruptible,
+	UNIT_SPELLCAST_NOT_INTERRUPTIBLE = HandleSpellcastNotInterruptible,
+}
+
+-- Table-driven dispatcher keeps the event handler list declarative and easy to audit.
+eventFrame:SetScript("OnEvent", function(_, event, ...)
+	local handler = EVENT_HANDLERS[event]
+	if handler then
+		handler(event, ...)
 	end
 end)
 
 -- OnUpdate for cast bar
+-- Poll cast bars outside the event system so channel/channel updates continue during fades.
 eventFrame:SetScript("OnUpdate", function()
 	for _, castBar in pairs(castBarsByUnit) do
 		if castBar.state ~= CASTBAR_STATE.HIDDEN then
