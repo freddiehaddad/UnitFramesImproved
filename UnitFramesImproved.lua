@@ -75,13 +75,14 @@ local AURA_HITRECT_PADDING = 5
 local STATUSBAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local FONT_DEFAULT = "Fonts\\FRIZQT__.TTF"
 
--- Default per-frame scale values (stored individually for future adjustments)
+local DEFAULT_BOSS_FRAME_SCALE = 0.45
+
 local DEFAULT_FRAME_SCALES = {
-	UFI_PlayerFrame = 0.6,
-	UFI_TargetFrame = 0.6,
-	UFI_TargetOfTargetFrame = 0.3,
-	UFI_FocusFrame = 0.6,
-	UFI_BossFrameAnchor = 0.6,
+	UFI_PlayerFrame = 0.55,
+	UFI_TargetFrame = 0.55,
+	UFI_TargetOfTargetFrame = 0.25,
+	UFI_FocusFrame = 0.55,
+	UFI_BossFrameAnchor = 1,
 }
 
 local function GetFrameScale(frameName)
@@ -357,7 +358,7 @@ local PLAYER_TEXTURE_COLORS = {
 local MAX_BOSS_FRAMES = 4
 for index = 1, MAX_BOSS_FRAMES do
 	DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index] = DEFAULT_FRAME_SCALES["UFI_BossFrame" .. index]
-		or DEFAULT_FRAME_SCALES.UFI_BossFrameAnchor
+		or DEFAULT_BOSS_FRAME_SCALE
 end
 local BOSS_FRAME_STRIDE = UFI_LAYOUT.Art.height + UFI_LAYOUT.CastBar.OffsetY + 40
 local BOSS_CLASSIFICATION_TEXTURES = {
@@ -710,8 +711,8 @@ local defaultPositions = {
 	UFI_BossFrameAnchor = {
 		point = "TOPRIGHT",
 		relativePoint = "TOPRIGHT",
-		x = -125,
-		y = -325,
+		x = 0,
+		y = -200,
 	},
 }
 
@@ -890,6 +891,16 @@ local function ResetFramePosition(frameName)
 		SetFrameScale(frameName, defaultScale)
 	end
 
+	if frameName == "UFI_BossFrameAnchor" then
+		for index = 1, MAX_BOSS_FRAMES do
+			local childName = "UFI_BossFrame" .. index
+			local childScale = DEFAULT_FRAME_SCALES[childName]
+			if childScale then
+				SetFrameScale(childName, childScale)
+			end
+		end
+	end
+
 	Print("Reset " .. frameName .. " to default position")
 end
 
@@ -1032,54 +1043,160 @@ local function UpdateStandardOverlayGeometry(frame, overlay)
 	end
 end
 
+local function CalculateBossFallbackOverlayData(anchor)
+	if not anchor or not anchor.frames then
+		return nil
+	end
+
+	local baseFrame = anchor.frames[1]
+	if not baseFrame then
+		return nil
+	end
+
+	local activeSlots = 0
+	for index, frame in ipairs(anchor.frames) do
+		if frame:IsShown() or UnitExists(frame.unit or "") then
+			activeSlots = math.max(activeSlots, index)
+		end
+	end
+
+	if activeSlots == 0 then
+		activeSlots = 1
+	end
+
+	local anchorWidth = anchor:GetWidth()
+	local anchorHeight = anchor:GetHeight()
+	local anchorScale = anchor:GetEffectiveScale()
+	if not anchorScale or anchorScale == 0 then
+		anchorScale = 1
+	end
+
+	local rect = baseFrame.ufHitRect
+	local leftInset = rect and rect.left or 0
+	local rightInset = rect and rect.right or 0
+	local topInset = rect and rect.top or 0
+	local bottomInset = rect and rect.bottom or 0
+
+	local frameWidth = baseFrame:GetWidth() or 0
+	local frameHeight = baseFrame:GetHeight() or 0
+	local frameScale = baseFrame:GetEffectiveScale() or anchorScale
+	local scaleRatio = frameScale / anchorScale
+
+	local slotWidth = math.max(0, (frameWidth - leftInset - rightInset) * scaleRatio)
+	local slotHeight = math.max(0, (frameHeight - topInset - bottomInset) * scaleRatio)
+	local slotLeft = leftInset * scaleRatio
+	local slotTop = topInset * scaleRatio
+	local slotStride = BOSS_FRAME_STRIDE * scaleRatio
+
+	local minLeft = slotLeft
+	local minTop = slotTop
+	local maxRight = slotLeft + slotWidth
+	local maxBottom = slotTop + slotHeight + (activeSlots - 1) * slotStride
+
+	local segments = {}
+	for index = 1, activeSlots do
+		segments[#segments + 1] = {
+			slotIndex = index,
+			left = slotLeft,
+			top = slotTop + (index - 1) * slotStride,
+			width = slotWidth,
+			height = slotHeight,
+		}
+	end
+
+	return {
+		minLeft = minLeft,
+		minTop = minTop,
+		maxRight = maxRight,
+		maxBottom = maxBottom,
+		segments = segments,
+	}
+end
+
 local function CalculateBossOverlayData(anchor)
 	if not anchor or not anchor.frames then
 		return nil
 	end
 
+	local anchorLeft = anchor:GetLeft()
+	local anchorRight = anchor:GetRight()
+	local anchorTop = anchor:GetTop()
+	local anchorBottom = anchor:GetBottom()
+	local anchorScale = anchor:GetEffectiveScale()
+	if
+		not anchorLeft
+		or not anchorRight
+		or not anchorTop
+		or not anchorBottom
+		or not anchorScale
+		or anchorScale == 0
+	then
+		return CalculateBossFallbackOverlayData(anchor)
+	end
+
 	local anchorWidth = anchor:GetWidth()
 	local anchorHeight = anchor:GetHeight()
-	local minLeft = anchorWidth
-	local minTop = anchorHeight
+	local minLeft = math.huge
+	local minTop = math.huge
 	local maxRight = 0
 	local maxBottom = 0
 	local segments = {}
+	local hasLiveData = false
 
 	for index, frame in ipairs(anchor.frames) do
-		local rect = frame.ufHitRect
-		if rect then
-			local frameWidth = frame:GetWidth() - rect.left - rect.right
-			local frameHeight = frame:GetHeight() - rect.top - rect.bottom
-			local offsetY = (index - 1) * BOSS_FRAME_STRIDE
-			local left = rect.left
-			local right = left + frameWidth
-			local top = rect.top + offsetY
-			local bottom = top + frameHeight
+		if frame:IsShown() then
+			local left = frame:GetLeft()
+			local right = frame:GetRight()
+			local top = frame:GetTop()
+			local bottom = frame:GetBottom()
+			if left and right and top and bottom then
+				hasLiveData = true
+				local frameEffectiveScale = frame:GetEffectiveScale() or anchorScale
+				if frameEffectiveScale == 0 then
+					frameEffectiveScale = anchorScale
+				end
+				local rect = frame.ufHitRect
+				if rect then
+					local leftInset = rect.left or 0
+					local rightInset = rect.right or 0
+					local topInset = rect.top or 0
+					local bottomInset = rect.bottom or 0
+					left = left + leftInset * frameEffectiveScale
+					right = right - rightInset * frameEffectiveScale
+					top = top - topInset * frameEffectiveScale
+					bottom = bottom + bottomInset * frameEffectiveScale
+				end
 
-			minLeft = math.min(minLeft, left)
-			minTop = math.min(minTop, top)
-			maxRight = math.max(maxRight, right)
-			maxBottom = math.max(maxBottom, bottom)
+				local localLeft = (left - anchorLeft) / anchorScale
+				local localTop = (anchorTop - top) / anchorScale
+				local localWidth = math.max(0, (right - left) / anchorScale)
+				local localHeight = math.max(0, (top - bottom) / anchorScale)
 
-			segments[#segments + 1] = {
-				slotIndex = index,
-				left = left,
-				top = top,
-				width = frameWidth,
-				height = frameHeight,
-			}
+				minLeft = math.min(minLeft, localLeft)
+				minTop = math.min(minTop, localTop)
+				maxRight = math.max(maxRight, localLeft + localWidth)
+				maxBottom = math.max(maxBottom, localTop + localHeight)
+
+				segments[#segments + 1] = {
+					slotIndex = index,
+					left = localLeft,
+					top = localTop,
+					width = localWidth,
+					height = localHeight,
+				}
+			end
 		end
 	end
 
-	if maxRight <= minLeft or maxBottom <= minTop then
-		return nil
+	if not hasLiveData or maxRight <= minLeft or maxBottom <= minTop then
+		return CalculateBossFallbackOverlayData(anchor)
 	end
 
 	return {
-		left = minLeft,
-		top = minTop,
-		right = math.max(anchorWidth - maxRight, 0),
-		bottom = math.max(anchorHeight - maxBottom, 0),
+		minLeft = minLeft,
+		minTop = minTop,
+		maxRight = maxRight,
+		maxBottom = maxBottom,
 		segments = segments,
 	}
 end
@@ -1122,10 +1239,10 @@ local function UpdateBossOverlayGeometry(anchor, overlay)
 
 	local anchorWidth = anchor:GetWidth()
 	local anchorHeight = anchor:GetHeight()
-	local overlayWidth = math.max(1, anchorWidth - data.left - data.right)
-	local overlayHeight = math.max(1, anchorHeight - data.top - data.bottom)
+	local overlayWidth = math.max(1, data.maxRight - data.minLeft)
+	local overlayHeight = math.max(1, data.maxBottom - data.minTop)
 	local anchorXOffset, anchorYOffset =
-		ComputeAnchorOffsets(point, anchorWidth, anchorHeight, overlayWidth, overlayHeight, data.left, data.top)
+		ComputeAnchorOffsets(point, anchorWidth, anchorHeight, overlayWidth, overlayHeight, data.minLeft, data.minTop)
 
 	overlay:SetPoint(point, relativeTo, relativePoint, (x or 0) + anchorXOffset, (y or 0) + anchorYOffset)
 	overlay:SetSize(overlayWidth, overlayHeight)
@@ -1133,10 +1250,10 @@ local function UpdateBossOverlayGeometry(anchor, overlay)
 	overlay.anchorAdjustX = anchorXOffset
 	overlay.anchorAdjustY = anchorYOffset
 	overlay.clickInsets = {
-		left = data.left,
-		top = data.top,
-		right = data.right,
-		bottom = data.bottom,
+		left = data.minLeft,
+		top = data.minTop,
+		right = math.max(anchorWidth - data.maxRight, 0),
+		bottom = math.max(anchorHeight - data.maxBottom, 0),
 	}
 
 	overlay.bossSegments = overlay.bossSegments or {}
@@ -1149,7 +1266,7 @@ local function UpdateBossOverlayGeometry(anchor, overlay)
 
 		segment:Show()
 		segment:ClearAllPoints()
-		segment:SetPoint("TOPLEFT", overlay, "TOPLEFT", segInfo.left - data.left, -(segInfo.top - data.top))
+		segment:SetPoint("TOPLEFT", overlay, "TOPLEFT", segInfo.left - data.minLeft, -(segInfo.top - data.minTop))
 		segment:SetSize(segInfo.width, segInfo.height)
 	end
 
