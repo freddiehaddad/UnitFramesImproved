@@ -519,6 +519,8 @@ local SELF_BUFF_EXCLUSIONS = FreezeTable({
 	[993957] = true, -- Titan Scroll: Eonar
 	[993959] = true, -- Titan Scroll: Aggramar
 	[993961] = true, -- Titan Scroll: Golganneth
+	[997615] = true, -- Resting
+	[997616] = true, -- Well Rested
 	[9931032] = true,
 }, "SELF_BUFF_EXCLUSIONS")
 
