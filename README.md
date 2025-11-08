@@ -8,19 +8,43 @@
 
 ---
 
-## Frame Styles
+## Unit Frames
 
-<div align="center">
+### Player
 
-| Regular | Elite |
+![Player Frame](assets/player.png)
+
+* Self buffs above health bar
+* Red frame indicates aggro
+* Red level text indicates in combat
+
+### Target
+
+![Target Frame](assets/target.png)
+
+* Tracks your debuffs
+
+### Focus
+
+![Focus Frame](assets/focus.png)
+
+* Track buffs
+* Track debuffs
+* Cast bar
+
+### Boss
+
+![Boss Frame](assets/boss.png)
+
+## High-resolution custom textures adapt automatically based on your target's classification
+
+| **Regular** | **Elite** |
 |---------|-------|
 | ![Regular Frame](Textures/512x256/custom/UI-TargetingFrame.png) | ![Elite Frame](Textures/512x256/custom/UI-TargetingFrame-Elite.png) |
+
 | **Rare** | **Rare Elite** |
+|---------|-------|
 | ![Rare Frame](Textures/512x256/custom/UI-TargetingFrame-Rare.png) | ![Rare Elite Frame](Textures/512x256/custom/UI-TargetingFrame-Rare-Elite.png) |
-
-*High-resolution custom textures adapt automatically based on your target's classification*
-
-</div>
 
 ---
 
@@ -28,12 +52,12 @@
 
 Replace the default Blizzard unit frames with:
 
-- **Crisper, higher-resolution textures** (2x sharper than default)
-- **Fully movable frames** - put your player, target, focus, and boss frames wherever you want
-- **Integrated cast bars** on target, focus, and boss frames
-- **Your debuffs only** on target/focus - no clutter from other players
-- **Right-click menus** for quick access to raid icons, difficulty settings, and player interactions
-- **Smooth, clean design** that looks great without needing complicated configuration
+* **Crisper, higher-resolution textures** (2x sharper than default)
+* **Fully movable frames** - put your player, target, focus, and boss frames wherever you want
+* **Integrated cast bars** on target, focus, and boss frames
+* **Your debuffs only** on target/focus - no clutter from other players
+* **Right-click menus** for quick access to raid icons, difficulty settings, and player interactions
+* **Smooth, clean design** that looks great without needing complicated configuration
 
 **No setup required** - just install and play!
 
@@ -52,38 +76,38 @@ Replace the default Blizzard unit frames with:
 
 ### ✨ Enhanced Player Frame
 
-- Health and power bars with percentage or numeric display
-- **Self-buff tracker** - shows your 5 most important buffs sorted by time remaining
-- **Right-click menu** for dungeon/raid difficulty and raid icons
-- Resting indicator and combat status
-- Circular portrait
+* Health and power bars with percentage or numeric display
+* **Self-buff tracker** - shows your 5 most important buffs sorted by time remaining
+* **Right-click menu** for dungeon/raid difficulty and raid icons
+* Resting indicator and combat status
+* Circular portrait
 
 ### 🎯 Improved Target Frame
 
-- **Cast bar** right below the portrait - never miss an interrupt
-- **Elite and rare borders** - gold dragons for elites, silver for rares (see gallery above!)
-- Shows target's buffs and **only your debuffs** (no clutter!)
-- **Right-click menu** - whisper, inspect, invite, trade, focus, and raid icons
-- Color-coded difficulty level
+* **Cast bar** right below the portrait - never miss an interrupt
+* **Elite and rare borders** - gold dragons for elites, silver for rares (see gallery above!)
+* Shows target's buffs and **only your debuffs** (no clutter!)
+* **Right-click menu** - whisper, inspect, invite, trade, focus, and raid icons
+* Color-coded difficulty level
 
 ### 🔍 Focus Frame
 
-- Everything the target frame has, for your focus target
-- **Dedicated cast bar** and debuff tracking
-- Right-click menu for quick interactions
+* Everything the target frame has, for your focus target
+* **Dedicated cast bar** and debuff tracking
+* Right-click menu for quick interactions
 
 ### 👥 Target of Target
 
-- See what your current target is looking at
-- Respects your Interface Options settings for when it appears
+* See what your current target is looking at
+* Respects your Interface Options settings for when it appears
 
 ### 💀 Boss Frames
 
-- **Four compact boss frames** that stack neatly on the side
-- **Cast bars on each boss** - track multiple casts at once
-- Click to target bosses instantly
-- Elite/rare borders automatically adapt
-- Show/hide automatically during encounters
+* **Four compact boss frames** that stack neatly on the side
+* **Cast bars on each boss** - track multiple casts at once
+* Click to target bosses instantly
+* Elite/rare borders automatically adapt
+* Show/hide automatically during encounters
 
 ---
 
@@ -99,11 +123,11 @@ Want the player frame in the bottom corner? Target frame near the center? Easy:
 
 ### Reset if Needed
 
-- `/ufi reset player` - reset just the player frame
-- `/ufi reset target` - reset just the target frame  
-- `/ufi reset focus` - reset just the focus frame
-- `/ufi reset boss` - reset boss frames
-- `/ufi reset` - reset everything to defaults
+* `/ufi reset player` - reset just the player frame
+* `/ufi reset target` - reset just the target frame  
+* `/ufi reset focus` - reset just the focus frame
+* `/ufi reset boss` - reset boss frames
+* `/ufi reset` - reset everything to defaults
 
 ---
 
@@ -111,29 +135,29 @@ Want the player frame in the bottom corner? Target frame near the center? Easy:
 
 ### On Your Player Frame
 
-- Set **dungeon difficulty** (Normal, Heroic, Mythic)
-- Set **raid difficulty** (10/25 Normal, Heroic, Mythic, Ascended)
-- Reset instances (with confirmation)
-- Place **raid target icons** on yourself
+* Set **dungeon difficulty** (Normal, Heroic, Mythic)
+* Set **raid difficulty** (10/25 Normal, Heroic, Mythic, Ascended)
+* Reset instances (with confirmation)
+* Place **raid target icons** on yourself
 
 ### On Target/Focus Frames
 
-- Whisper, Inspect, Invite, Trade, Follow, Duel
-- Compare Achievements
-- Place **raid target icons**
-- Options grey out when not available (e.g., can't trade with NPCs)
+* Whisper, Inspect, Invite, Trade, Follow, Duel
+* Compare Achievements
+* Place **raid target icons**
+* Options grey out when not available (e.g., can't trade with NPCs)
 
 ---
 
 ## Extra Features
 
-- **Circular portraits** - cleaner look than the default squares
-- **High-res textures** - all frame artwork is double the resolution for crisp edges
-- **Cast bar interrupt detection** - cast bars turn grey when you can't interrupt
-- **Debuff type coloring** - borders show magic (blue), poison (green), curse (purple), disease (brown)
-- **Stack counts** - see how many stacks of a buff/debuff
-- **OmniCC compatible** - cooldown timers work if you have OmniCC installed
-- **No combat taint** - won't break your UI or cause errors
+* **Circular portraits** - cleaner look than the default squares
+* **High-res textures** - all frame artwork is double the resolution for crisp edges
+* **Cast bar interrupt detection** - cast bars turn grey when you can't interrupt
+* **Debuff type coloring** - borders show magic (blue), poison (green), curse (purple), disease (brown)
+* **Stack counts** - see how many stacks of a buff/debuff
+* **OmniCC compatible** - cooldown timers work if you have OmniCC installed
+* **No combat taint** - won't break your UI or cause errors
 
 ---
 
@@ -141,10 +165,10 @@ Want the player frame in the bottom corner? Target frame near the center? Easy:
 
 Type `/ufi help` in-game to see all commands:
 
-- **`/ufi unlock`** - Unlock frames to reposition them
-- **`/ufi lock`** - Lock frames and save positions
-- **`/ufi reset [frame]`** - Reset positions (player/target/focus/boss/all)
-- **`/ufi help`** - Show command help
+* **`/ufi unlock`** - Unlock frames to reposition them
+* **`/ufi lock`** - Lock frames and save positions
+* **`/ufi reset [frame]`** - Reset positions (player/target/focus/boss/all)
+* **`/ufi help`** - Show command help
 
 ---
 
@@ -169,8 +193,8 @@ A: Yes! Positions are saved per character automatically.
 
 ## Known Issues
 
-- Reset Instances menu shows confirmation but actual reset depends on server implementation
-- Some menu text may not be fully localized in non-English clients
+* Reset Instances menu shows confirmation but actual reset depends on server implementation
+* Some menu text may not be fully localized in non-English clients
 
 ---
 
