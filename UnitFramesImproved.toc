@@ -2,7 +2,7 @@
 ## Title: UnitFramesImproved
 ## Notes: Enhanced unit frames addon for Ascension's Warcraft Reborn - Custom frames, cast bars, debuff tracking, and interactive menus.
 ## Version: 1.0.0
-## Author: Althalla (Kim Forsberg)
+## Author: Freddie Haddad
 ## SavedVariables: globalSettings
 ## SavedVariablesPerCharacter: UnitFramesImprovedDB
 
