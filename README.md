@@ -4,245 +4,188 @@
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange.svg)
 ![Server](https://img.shields.io/badge/server-Ascension%20WR-purple.svg)
 
-A complete unit frame replacement addon for **Ascension's Warcraft Reborn** private server, featuring custom-designed frames with enhanced functionality, cast bars, debuff tracking, right-click menus, and **fully movable frames**.
-
-## ✨ Features
-
-### 🎯 Complete Frame Suite
-
-- **Player Frame** - Enhanced health/power display with resting indicator, combat-red level text, aggro-tinting highlight, custom right-click menu, and a curated 5-slot self-buff tracker sorted by remaining time
-- **Target Frame** - Elite/rare detection, target buffs, your debuffs, and a comprehensive interaction menu
-- **Focus Frame** - Dedicated focus target tracking with target buffs, your debuffs, and a tailored interaction menu
-- **Target of Target** - See what your target is targeting at a glance, honoring the Interface Options toggle and visibility mode
-- **Boss Frames** - Four compact player-style boss frames stacked vertically with secure click targeting, integrated cast bars, automatic show/hide, and artwork that adapts to elite/rare/world classifications
-
-### 🎨 Visual Enhancements
-
-- **Custom Textures** - Professional-looking frame borders and elite dragon overlays
-- **High-Resolution Artwork** - All frame textures recreated at double the original resolution (512×256) for crisper edges and cleaner curves without changing on-screen size
-- **Circular Portraits** - Clean 2D portraits with circular masking
-- **Color-Coded Power Bars** - Mana, rage, energy, focus, and runic power with proper colors
-- **Elite/Rare Indicators** - Gold elite, silver rare, and rare-elite dragon borders
-- **Level Indicators** - Color-coded level text (grey, yellow, orange, red) based on difficulty
-- **Status Text Integration** - Seamlessly integrates with WoW's Interface Options "Display Percentages" setting
-  - Shows percentages (e.g., "75%") or numeric values (e.g., "15.2k / 20.3k")
-  - Updates instantly when toggled in Interface Options → Status Text
-  - No reload required - changes apply immediately
-- **Target-of-Target Integration** - Respects the Interface Options checkbox and dropdown (Raid, Party, Solo, Raid & Party, Always) with instant updates
-
-### ⚔️ Combat Features
-
-- **Cast Bars** - Full casting and channeling tracking for target, focus, and each boss frame
-  - Cast bar tint shifts to grey when a spell cannot be interrupted
-  - Spell names and cast times
-  - Smooth progress animations
-- **Debuff Tracking** - Slim, player-focused aura rows
-  - Target and focus frames show buffs plus only your (player/pet/vehicle) debuffs
-  - Debuff row slides up when no buffs are active to avoid awkward gaps
-  - Color-coded borders by debuff type with stack counts and OmniCC-friendly cooldown spirals
-
-### 🖱️ Right-Click Menus
-
-- **Player Frame Menu**
-  - Dungeon Difficulty (Normal, Heroic, Mythic) with checkmarks
-  - Raid Difficulty (10-25 Normal, Heroic, Mythic, Ascended) with checkmarks
-  - Reset Instances with confirmation dialog
-  - Raid Target Icons with colored text and icon previews
-  - Cancel option
-  
-- **Target Frame Menu**
-  - Whisper, Inspect, Invite
-  - Compare Achievements
-  - Trade, Follow, Duel
-  - Raid Target Icons (same as player menu)
-  - Smart disabling (greyed out when not applicable)
-  - Auto-switches to player menu when targeting yourself
-
-### 🎯 Focus Frame Features
-
-- **Custom interaction menu** - Tailored to focus targets with whisper, invite, and raid icon options
-- All standard features (cast bar, debuffs, portrait, etc.)
-
-### 📍 Movable Frames
-
-- **Drag-to-Move** - Unlock frames to reposition them anywhere on screen
-- **Instant Response** - Smooth, lag-free dragging with pixel-perfect precision
-- **Visual Feedback** - Color-coded overlays (green=unlocked, yellow=dragging)
-- **Position Persistence** - Frame locations saved per character
-- **Per-Frame Scaling** - Each frame remembers its individual scale and reapplies it on login
-- **Combat Protection** - Frames auto-lock during combat to prevent taint
-- **Reset Options** - Restore default positions individually or all at once
-- **Group Anchors** - Boss frames share a single anchor so the full stack moves together
-- **Target-of-Target Support** - The target-of-target frame now unlocks and resets with the same commands
-- **Slash Commands**:
-  - `/ufi unlock` - Enable frame repositioning
-  - `/ufi lock` - Lock frames and save positions
-  - `/ufi reset [frame]` - Reset to defaults (player/target/focus/boss/all)
-  - `/ufi help` - Display all commands
-
-## 📦 Installation
-
-1. **Download** the addon files
-2. **Extract** the `UnitFramesImproved` folder to your WoW directory:
-
-   ```text
-   World of Warcraft/Interface/AddOns/UnitFramesImproved/
-   ```
-
-3. **Restart** World of Warcraft or use `/reload` if already in-game
-4. The addon loads automatically - **no configuration needed!**
-
-## 📁 File Structure
-
-```text
-UnitFramesImproved/
-├── UnitFramesImproved.lua    # Main addon code
-├── UnitFramesImproved.toc    # Addon metadata
-├── README.md                 # This file
-└── Textures/
-  ├── UI-TargetingFrame.blp
-  ├── UI-TargetingFrame-Elite.blp
-  ├── UI-TargetingFrame-Rare.blp
-  ├── UI-TargetingFrame-Rare-Elite.blp
-  ├── UI-TargetingFrame-512x256/<variants>
-  └── 256x128/<variants>
-```
-
-## 🎮 Usage
-
-### Basic Functionality
-
-- Frames appear automatically and update in real-time
-- **Player frame** is always visible
-- **Target frame** shows when you have a target
-- **Focus frame** appears when you set a focus target
-- **Target of Target** displays when your target has a target (according to the Interface Options toggle/mode)
-- **Boss frames** appear automatically during encounters, remain fully clickable for targeting, and show cast bars beneath each portrait
-
-### Slash Commands
-
-Type `/ufi help` in-game to see all available commands:
-
-- **`/ufi unlock`** - Unlock frames for repositioning
-  - Green overlays appear on player, target, and focus frames
-  - Click and drag any frame to move it
-  - Frames turn yellow while dragging for visual feedback
-  
-- **`/ufi lock`** - Lock frames and save positions
-  - Saves current positions permanently
-  - Overlays disappear and frames are locked in place
-  
-- **`/ufi reset [frame]`** - Reset frame positions to defaults
-  - `/ufi reset player` - Reset only the player frame
-  - `/ufi reset target` - Reset only the target frame
-  - `/ufi reset focus` - Reset only the focus frame
-  - `/ufi reset targetoftarget` or `/ufi reset tot` - Reset the target-of-target frame
-  - `/ufi reset boss` - Reset the boss frame anchor
-  - `/ufi reset` - Reset all frames to defaults
-  
-- **`/ufi help`** - Display command help
-
-### Frame Positioning
-
-1. Type `/ufi unlock` to enable repositioning mode
-2. Green overlays appear on movable frames
-3. Click and drag any frame to your desired position
-4. Frames turn yellow while dragging for visual feedback
-5. Release to place the frame
-6. Type `/ufi lock` to save positions and disable repositioning
-7. Positions are automatically saved per character
-
-**Note**: Frames automatically lock during combat to prevent taint issues.
-
-### Focus Management
-
-- **Set Focus**: Use the standard `/focus` command or Focus Target keybind
-- **Clear Focus**: Use `/clearfocus` or your preferred keybind/macro
-
-### Menu Interactions
-
-- **Right-click Player Frame**: Access difficulty settings, raid icons, and instance reset
-- **Right-click Target Frame**: Full interaction menu (whisper, trade, invite, etc.)
-- **Raid Target Icons**: Color-coded with icon previews, checkmarks show current selection
-
-### Status Text Display
-
-The addon respects WoW's native "Display Percentages" setting:
-
-1. Open Interface Options (Esc → Interface)
-2. Navigate to **Status Text** panel
-3. Check or uncheck **"Display Percentages"**
-4. Your unit frames update instantly:
-   - **Checked**: Shows percentages (e.g., "75%" health/power)
-   - **Unchecked**: Shows numeric values (e.g., "15.2k / 20.3k")
-5. No `/reload` required - changes apply immediately to all frames
-
-### Target of Target Display
-
-The target-of-target frame mirrors Blizzard's Interface Options:
-
-1. Open Interface Options (Esc → Interface)
-2. Navigate to **Combat** and enable **"Show Target of Target"**
-3. Choose the desired visibility mode (Raid, Party, Solo, Raid & Party, Always)
-4. The custom frame updates instantly based on your selection—no reload needed
-5. Works seamlessly in and out of combat
-
-### Difficulty Changes
-
-1. Right-click your player frame
-2. Select "Dungeon Difficulty" or "Raid Difficulty"
-3. Choose your desired difficulty (checkmark shows current setting)
-4. Difficulty changes apply immediately
-
-## 🔧 Technical Details
-
-### Taint-Free Design
-
-- Uses **SecureUnitButtonTemplate** for all interactive frames
-- Secure unit button templates and dropdown filtering to avoid taint
-- No protected function taint issues
-- Menu items filtered to avoid taint-causing operations
-- Combat detection prevents frame repositioning during encounters
-- **Secure hook integration** - Uses `hooksecurefunc` to detect CVar changes from Interface Options without polling
-- **Interface-aware visibility** - Mirrors Blizzard's target-of-target CVars to keep visibility in sync with the Combat options panel
-
-### Saved Variables
-
-- **Per-character positions** - Each character has their own frame layout
-- **Position validation** - Gracefully falls back to defaults when saved data is missing or malformed
-- **Lock state persistence** - Remembers if frames were unlocked (restores on login if not in combat)
-
-### Performance
-
-- Efficient event handling with targeted updates
-- Default Blizzard frames completely disabled (unregistered events)
-- Optimized debuff sorting and display
-- Smooth animations without frame rate impact
-- Instant drag response with custom mouse tracking
-
-### Compatibility
-
-- **Target Server**: Ascension's Warcraft Reborn (3.3.5a)
-- **OmniCC Support**: Cooldown numbers work automatically if installed
-- Replaces default Blizzard unit frames completely
-
-## Known Issues
-
-- Reset Instances menu option shows confirmation but reset behavior depends on server implementation
-- Some Blizzard global strings may not be localized in all languages
-
-## 📝 Credits
-
-**Addon Design & Development**: Custom unit frame implementation for Ascension WR
-
-**Textures**: Based on Blizzard's default UI textures with custom modifications
-
-**Inspired By**: Classic WoW unit frame design philosophy
-
-## 📄 License
-
-This addon is provided as-is for use on Ascension's Warcraft Reborn private server.
+**A sleek unit frame replacement for Ascension's Warcraft Reborn** with sharper textures, movable frames, integrated cast bars, and quality-of-life improvements that make tracking combat easier.
 
 ---
 
-**Enjoy your enhanced unit frames! May your crits be plentiful and your interrupts on point!** ⚔️✨
+## Frame Styles
+
+<div align="center">
+
+| Regular | Elite |
+|---------|-------|
+| ![Regular Frame](Textures/512x256/custom/UI-TargetingFrame.png) | ![Elite Frame](Textures/512x256/custom/UI-TargetingFrame-Elite.png) |
+| **Rare** | **Rare Elite** |
+| ![Rare Frame](Textures/512x256/custom/UI-TargetingFrame-Rare.png) | ![Rare Elite Frame](Textures/512x256/custom/UI-TargetingFrame-Rare-Elite.png) |
+
+*High-resolution custom textures adapt automatically based on your target's classification*
+
+</div>
+
+---
+
+## Why Use This Addon?
+
+Replace the default Blizzard unit frames with:
+
+- **Crisper, higher-resolution textures** (2x sharper than default)
+- **Fully movable frames** - put your player, target, focus, and boss frames wherever you want
+- **Integrated cast bars** on target, focus, and boss frames
+- **Your debuffs only** on target/focus - no clutter from other players
+- **Right-click menus** for quick access to raid icons, difficulty settings, and player interactions
+- **Smooth, clean design** that looks great without needing complicated configuration
+
+**No setup required** - just install and play!
+
+---
+
+## Quick Install
+
+1. Download and extract the `UnitFramesImproved` folder
+2. Place it in: `World of Warcraft/Interface/AddOns/`
+3. Restart WoW or type `/reload` if already in-game
+4. **Done!** Your frames are now upgraded
+
+---
+
+## What You Get
+
+### ✨ Enhanced Player Frame
+
+- Health and power bars with percentage or numeric display
+- **Self-buff tracker** - shows your 5 most important buffs sorted by time remaining
+- **Right-click menu** for dungeon/raid difficulty and raid icons
+- Resting indicator and combat status
+- Circular portrait
+
+### 🎯 Improved Target Frame
+
+- **Cast bar** right below the portrait - never miss an interrupt
+- **Elite and rare borders** - gold dragons for elites, silver for rares (see gallery above!)
+- Shows target's buffs and **only your debuffs** (no clutter!)
+- **Right-click menu** - whisper, inspect, invite, trade, focus, and raid icons
+- Color-coded difficulty level
+
+### 🔍 Focus Frame
+
+- Everything the target frame has, for your focus target
+- **Dedicated cast bar** and debuff tracking
+- Right-click menu for quick interactions
+
+### 👥 Target of Target
+
+- See what your current target is looking at
+- Respects your Interface Options settings for when it appears
+
+### 💀 Boss Frames
+
+- **Four compact boss frames** that stack neatly on the side
+- **Cast bars on each boss** - track multiple casts at once
+- Click to target bosses instantly
+- Elite/rare borders automatically adapt
+- Show/hide automatically during encounters
+
+---
+
+## Moving Your Frames
+
+Want the player frame in the bottom corner? Target frame near the center? Easy:
+
+1. Type **`/ufi unlock`** - green overlays appear on your frames
+2. **Click and drag** any frame to where you want it
+3. Type **`/ufi lock`** - saves your layout
+
+**Pro tip:** Each character saves its own layout, so your tank and healer can have different setups.
+
+### Reset if Needed
+
+- `/ufi reset player` - reset just the player frame
+- `/ufi reset target` - reset just the target frame  
+- `/ufi reset focus` - reset just the focus frame
+- `/ufi reset boss` - reset boss frames
+- `/ufi reset` - reset everything to defaults
+
+---
+
+## Right-Click Menus
+
+### On Your Player Frame
+
+- Set **dungeon difficulty** (Normal, Heroic, Mythic)
+- Set **raid difficulty** (10/25 Normal, Heroic, Mythic, Ascended)
+- Reset instances (with confirmation)
+- Place **raid target icons** on yourself
+
+### On Target/Focus Frames
+
+- Whisper, Inspect, Invite, Trade, Follow, Duel
+- Compare Achievements
+- Place **raid target icons**
+- Options grey out when not available (e.g., can't trade with NPCs)
+
+---
+
+## Extra Features
+
+- **Circular portraits** - cleaner look than the default squares
+- **High-res textures** - all frame artwork is double the resolution for crisp edges
+- **Cast bar interrupt detection** - cast bars turn grey when you can't interrupt
+- **Debuff type coloring** - borders show magic (blue), poison (green), curse (purple), disease (brown)
+- **Stack counts** - see how many stacks of a buff/debuff
+- **OmniCC compatible** - cooldown timers work if you have OmniCC installed
+- **No combat taint** - won't break your UI or cause errors
+
+---
+
+## Commands Reference
+
+Type `/ufi help` in-game to see all commands:
+
+- **`/ufi unlock`** - Unlock frames to reposition them
+- **`/ufi lock`** - Lock frames and save positions
+- **`/ufi reset [frame]`** - Reset positions (player/target/focus/boss/all)
+- **`/ufi help`** - Show command help
+
+---
+
+## FAQ
+
+**Q: Will this work with other addons?**  
+A: Yes! It's designed to avoid conflicts and works with OmniCC, WeakAuras, and most popular addons.
+
+**Q: Can I configure colors or sizes?**  
+A: The addon is designed to work perfectly out of the box without configuration. Each frame saves its scale when you move it.
+
+**Q: What if I'm in combat and want to move frames?**  
+A: Frames automatically lock during combat to prevent errors. Wait until you're out of combat, then use `/ufi unlock`.
+
+**Q: Does this disable Blizzard's default frames?**  
+A: Yes, completely. This is a full replacement.
+
+**Q: Will my frame positions save if I log out?**  
+A: Yes! Positions are saved per character automatically.
+
+---
+
+## Known Issues
+
+- Reset Instances menu shows confirmation but actual reset depends on server implementation
+- Some menu text may not be fully localized in non-English clients
+
+---
+
+## Credits
+
+**Design & Development**: Custom implementation for Ascension Warcraft Reborn  
+**Textures**: Enhanced from Blizzard's default UI artwork  
+**Inspired by**: Classic WoW unit frame philosophy
+
+---
+
+## License
+
+Provided as-is for Ascension's Warcraft Reborn private server.
+
+---
+
+**Enjoy cleaner, more functional unit frames!** ⚔️
