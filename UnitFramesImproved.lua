@@ -2079,6 +2079,7 @@ local function CreatePlayerFrame()
 		unit = "player",
 		mirrored = true,
 		texturePath = FRAME_TEXTURES.player,
+		frameLevel = 25,
 	})
 
 	ApplyUnitFrameProfileDefaults(frame, {
