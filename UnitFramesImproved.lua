@@ -785,6 +785,7 @@ end
 local frameOverlays = {}
 local isUnlocked = false
 local pendingPositions = {}
+local pendingFocusScale = false
 local unsavedPositions = {}
 local UpdateOverlayForFrame -- forward declaration
 
@@ -1662,6 +1663,34 @@ local function LockFrames()
 	end
 end
 
+-- Apply focus frame scale based on interface option setting
+local function ApplyFocusFrameScale()
+	if not UFI_FocusFrame then
+		return
+	end
+
+	-- Defer scale changes during combat
+	if InCombatLockdown() then
+		pendingFocusScale = true
+		return
+	end
+
+	local fullSize = GetCVarBool("fullSizeFocusFrame")
+	local desiredScale = fullSize and 0.55 or 0.45
+
+	-- Only apply if user hasn't manually scaled the frame
+	local currentScale = GetFrameScale("UFI_FocusFrame")
+	local defaultLarge = 0.55
+	local defaultSmall = 0.45
+
+	-- Check if current scale matches either default (meaning user hasn't customized it)
+	if currentScale == defaultLarge or currentScale == defaultSmall then
+		SetFrameScale("UFI_FocusFrame", desiredScale)
+	end
+
+	pendingFocusScale = false
+end
+
 -- Handle combat start
 local function OnCombatStart()
 	if isUnlocked then
@@ -1684,6 +1713,11 @@ end
 local function OnCombatEnd()
 	-- Apply pending positions
 	ApplyPendingPositions()
+
+	-- Apply pending focus scale if needed
+	if pendingFocusScale then
+		ApplyFocusFrameScale()
+	end
 
 	-- Re-enable dragging if unlocked
 	if isUnlocked then
@@ -3707,6 +3741,7 @@ local function HandlePlayerLogin()
 	UFI_PlayerFrame = CreatePlayerFrame()
 	UFI_TargetFrame = CreateTargetFrame()
 	UFI_FocusFrame = CreateFocusFrame()
+	ApplyFocusFrameScale()
 	UFI_TargetOfTargetFrame = CreateTargetOfTargetFrame()
 	UFI_BossFrameAnchor = CreateBossFrames()
 
@@ -3779,6 +3814,8 @@ local function HandlePlayerLogin()
 		elseif name == "showTargetOfTarget" or name == "targetOfTargetMode" then
 			ApplyTargetOfTargetVisibilityDriver()
 			UpdateTargetOfTarget()
+		elseif name == "fullSizeFocusFrame" then
+			ApplyFocusFrameScale()
 		end
 	end)
 

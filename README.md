@@ -95,6 +95,7 @@ Replace the default Blizzard unit frames with:
 * Similar to target frame, but shows **all debuffs** from any source
 * **Dedicated cast bar** for tracking interrupts
 * Shows all buffs for full awareness
+* **Respects "Larger Focus Frame"** setting in Interface Options
 * Right-click menu for quick interactions
 
 ### 👥 Target of Target
