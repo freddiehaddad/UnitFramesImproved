@@ -3429,7 +3429,7 @@ local function HideAuraRows(frame)
 	end
 end
 
-local function UpdateUnitAuras(unit, frame)
+local function UpdateUnitAuras(unit, frame, filterDebuffs)
 	if not frame then
 		return
 	end
@@ -3506,7 +3506,7 @@ local function UpdateUnitAuras(unit, frame)
 				break
 			end
 
-			if caster == "player" or caster == "pet" or caster == "vehicle" then
+			if not filterDebuffs or (caster == "player" or caster == "pet" or caster == "vehicle") then
 				debuffsShown = debuffsShown + 1
 				if debuffsShown > maxDebuffs then
 					debuffsShown = maxDebuffs
@@ -3646,7 +3646,7 @@ local DebuffTypeColor = {
 }
 
 local function UpdateTargetAuras()
-	UpdateUnitAuras("target", UFI_TargetFrame)
+	UpdateUnitAuras("target", UFI_TargetFrame, true)
 end
 
 -------------------------------------------------------------------------------

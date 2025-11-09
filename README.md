@@ -22,14 +22,14 @@
 
 ![Target Frame](assets/target.png)
 
-* Tracks your debuffs
+* Tracks your debuffs only
 
 ### Focus
 
 ![Focus Frame](assets/focus.png)
 
 * Track buffs
-* Track debuffs
+* Track all debuffs (from any source)
 * Cast bar
 
 ### Boss
@@ -55,7 +55,7 @@ Replace the default Blizzard unit frames with:
 * **Crisper, higher-resolution textures** (2x sharper than default)
 * **Fully movable frames** - put your player, target, focus, and boss frames wherever you want
 * **Integrated cast bars** on target, focus, and boss frames
-* **Your debuffs only** on target/focus - no clutter from other players
+* **Smart debuff tracking** - target shows your debuffs only, focus shows all debuffs
 * **Right-click menus** for quick access to raid icons, difficulty settings, and player interactions
 * **Smooth, clean design** that looks great without needing complicated configuration
 
@@ -92,8 +92,9 @@ Replace the default Blizzard unit frames with:
 
 ### 🔍 Focus Frame
 
-* Everything the target frame has, for your focus target
-* **Dedicated cast bar** and debuff tracking
+* Similar to target frame, but shows **all debuffs** from any source
+* **Dedicated cast bar** for tracking interrupts
+* Shows all buffs for full awareness
 * Right-click menu for quick interactions
 
 ### 👥 Target of Target
