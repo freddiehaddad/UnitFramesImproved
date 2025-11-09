@@ -433,6 +433,33 @@ local function AbbreviateNumber(value)
 	end
 end
 
+--[[------------------------------------------------------------------
+	TruncateNameToFit: Truncates text with "..." to fit within maxWidth.
+	Uses GetStringWidth() to measure actual rendered pixel width.
+--]]
+------------------------------------------------------------------
+local function TruncateNameToFit(fontString, text, maxWidth)
+	if not text or text == "" then
+		return ""
+	end
+
+	fontString:SetText(text)
+	if fontString:GetStringWidth() <= maxWidth then
+		return text
+	end
+
+	-- Progressively shorten until it fits
+	for i = #text - 1, 1, -1 do
+		local truncated = string.sub(text, 1, i) .. "..."
+		fontString:SetText(truncated)
+		if fontString:GetStringWidth() <= maxWidth then
+			return truncated
+		end
+	end
+
+	return "..."
+end
+
 -- Central lookup for base frame textures keyed by classification.
 local FRAME_TEXTURES = FreezeTable({
 	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame",
@@ -3057,7 +3084,10 @@ UpdateUnitFrameName = function(frame)
 		return
 	end
 
-	frame.nameText:SetText(UnitName(unit) or "")
+	-- Truncate name to fit health bar width (with 20px padding)
+	local maxWidth = frame.healthBar:GetWidth() - 20
+	local truncatedName = TruncateNameToFit(frame.nameText, UnitName(unit) or "", maxWidth)
+	frame.nameText:SetText(truncatedName)
 
 	local profile = GetFrameProfile(frame)
 	if profile and profile.customNameUpdate then
