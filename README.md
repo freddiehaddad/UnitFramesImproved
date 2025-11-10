@@ -155,7 +155,7 @@ Want the player frame in the bottom corner? Target frame near the center? Easy:
 
 * **Circular portraits** - cleaner look than the default squares
 * **High-res textures** - all frame artwork is double the resolution for crisp edges
-* **Cast bar interrupt detection** - cast bars turn grey when you can't interrupt
+* **Cast bar interrupt detection** - interruptible casts show green borders and gold icon frames, uninterruptible casts show red borders and purple icon frames
 * **Debuff type coloring** - borders show magic (blue), poison (green), curse (purple), disease (brown)
 * **Stack counts** - see how many stacks of a buff/debuff
 * **OmniCC compatible** - cooldown timers work if you have OmniCC installed

@@ -2495,8 +2495,16 @@ local function UpdateCastBar(castBar)
 
 		if castBar.notInterruptible then
 			castBar:SetStatusBarColor(0.5, 0.5, 0.5)
+			castBar.border:SetVertexColor(0.7, 0, 0) -- Red border for uninterruptible
+			if castBar.iconBorder then
+				castBar.iconBorder:SetVertexColor(0.5, 0, 0.3) -- Purple icon border
+			end
 		else
 			castBar:SetStatusBarColor(1, 0.7, 0)
+			castBar.border:SetVertexColor(0, 1, 0) -- Green border for interruptible
+			if castBar.iconBorder then
+				castBar.iconBorder:SetVertexColor(1, 0.9, 0) -- Gold icon border
+			end
 		end
 	end
 end
@@ -2534,7 +2542,7 @@ local function BeginCast(unit, isChannel)
 	if castBar.iconBorder then
 		castBar.iconBorder:Show()
 	end
-	castBar:SetStatusBarColor(1, 0.7, 0)
+	-- Color is set by UpdateCastBar based on interruptibility
 	castBar:Show()
 	UpdateCastBar(castBar)
 end
@@ -2561,9 +2569,17 @@ local function FailCast(unit, wasInterrupted)
 		if wasInterrupted then
 			castBar:SetStatusBarColor(1, 0, 0)
 			castBar.text:SetText("Interrupted")
+			castBar.border:SetVertexColor(1, 0, 0) -- Red border for interrupted
+			if castBar.iconBorder then
+				castBar.iconBorder:SetVertexColor(1, 0, 0) -- Red icon border
+			end
 		else
 			castBar:SetStatusBarColor(0.5, 0.5, 0.5)
 			castBar.text:SetText("Failed")
+			castBar.border:SetVertexColor(0.5, 0.5, 0.5) -- Gray border for failed
+			if castBar.iconBorder then
+				castBar.iconBorder:SetVertexColor(0.5, 0.5, 0.5) -- Gray icon border
+			end
 		end
 		castBar:SetValue(1)
 		castBar:SetAlpha(1)
@@ -2607,8 +2623,10 @@ local function HideCastBar(unit)
 	castBar.text:SetText("")
 	castBar.time:SetText("")
 	castBar.icon:SetTexture(nil)
+	castBar.border:SetVertexColor(1, 1, 1) -- Reset border to white
 	if castBar.iconBorder then
 		castBar.iconBorder:Hide()
+		castBar.iconBorder:SetVertexColor(1, 1, 1) -- Reset icon border to white
 	end
 	castBar.notInterruptible = false
 end
