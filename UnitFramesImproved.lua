@@ -5,6 +5,8 @@
 	default frames to avoid taint issues while providing enhanced visuals.
 ]]
 
+---@diagnostic disable: undefined-global
+
 -- Provide a predictable table wipe helper that survives sandboxed Lua environments.
 local table_wipe = rawget(table, "wipe") or function(tbl)
 	for key in pairs(tbl) do
