@@ -72,6 +72,7 @@ local Layout = (function()
 		Power = { x = 60, y = 106, width = 236, height = 20 },
 		Portrait = { x = 305, y = 31, width = 116, height = 116 },
 		LevelRest = { x = 386, y = 112, width = 39, height = 39 },
+		ComboPointsText = { x = 388, y = 38, width = 38, height = 38 },
 		CastBar = {
 			TextureSize = { width = 128, height = 16 },
 			Fill = { x = 3, y = 3, width = 122, height = 10 },
@@ -471,6 +472,15 @@ local FRAME_TEXTURES = FreezeTable({
 	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-TargetingFrame-Rare-Elite",
 }, "FRAME_TEXTURES")
 
+-- Rogue variant textures (root-level BLPs only) mapped by classification key
+ROGUE_FRAME_TEXTURES = ROGUE_FRAME_TEXTURES or FreezeTable({
+	default = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-RogueTargetingFrame",
+	player = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-RogueTargetingFrame-Rare",
+	elite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-RogueTargetingFrame-Elite",
+	rare = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-RogueTargetingFrame-Rare",
+	rareElite = "Interface\\AddOns\\UnitFramesImproved\\Textures\\UI-RogueTargetingFrame-Rare-Elite",
+}, "ROGUE_FRAME_TEXTURES")
+
 -- Alternate vertex colors applied to the player frame under specific states.
 local PLAYER_TEXTURE_COLORS = FreezeTable({
 	normal = { r = 1, g = 1, b = 1 },
@@ -487,6 +497,13 @@ local BOSS_CLASSIFICATION_TEXTURES = FreezeTable({
 	rare = FRAME_TEXTURES.rare,
 	rareelite = FRAME_TEXTURES.rareElite,
 }, "BOSS_CLASSIFICATION_TEXTURES")
+
+local ROGUE_BOSS_CLASSIFICATION_TEXTURES = FreezeTable({
+	worldboss = ROGUE_FRAME_TEXTURES.elite,
+	elite = ROGUE_FRAME_TEXTURES.elite,
+	rare = ROGUE_FRAME_TEXTURES.rare,
+	rareelite = ROGUE_FRAME_TEXTURES.rareElite,
+}, "ROGUE_BOSS_CLASSIFICATION_TEXTURES")
 local bossFrames = {}
 local bossFramesByUnit = {}
 local UpdateBossFrame
@@ -2671,6 +2688,28 @@ local function CreateTargetFrame()
 		textures = BOSS_CLASSIFICATION_TEXTURES,
 	})
 	frame.castBar = CreateCastBar(frame, "target", frame.mirrored)
+	if frame.ufProfile then frame.ufProfile.classificationTextures = BOSS_CLASSIFICATION_TEXTURES end
+
+	-- New dedicated combo points text (independent of level text)
+	local cpX, cpY, cpW, cpH = LayoutResolveRect(UFI_LAYOUT.ComboPointsText, frame.mirrored)
+	frame.comboPointsText = CreateFontString(frame.visualLayer, {
+		point = "TOPLEFT",
+		relativeTo = frame,
+		relativePoint = "TOPLEFT",
+		x = cpX,
+		y = -cpY,
+		size = 20,
+		flags = "OUTLINE",
+		color = { r = 1, g = 1, b = 0 },
+		drawLayer = 7,
+	})
+	frame.comboPointsText:SetSize(cpW, cpH)
+	frame.comboPointsText:SetJustifyH("CENTER")
+	frame.comboPointsText:SetJustifyV("MIDDLE")
+	frame.comboPointsText:Hide()
+
+	frame.comboPoints = nil
+	frame.comboPointHighlight = nil
 
 	AttachAuraContainers(frame, {
 		buffs = { count = 5, position = "below", order = 1 },
@@ -3268,7 +3307,80 @@ local UpdateTargetPower = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFramePo
 local UpdateTargetPortrait = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFramePortrait)
 local UpdateTargetName = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameName)
 local UpdateTargetLevel = MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameLevel)
-local UpdateTargetClassification = MakeUnitFrameUpdater(GetTargetFrame, UpdateClassificationOverlay)
+function UpdateTargetClassification(frame)
+	frame = frame or UFI_TargetFrame
+	if not frame then return end
+	local profile = GetFrameProfile(frame)
+	if not profile then return end
+	local unit = profile.unit or "target"
+	if not UnitExists(unit) then return end
+	local classification = UnitClassification(unit) or "normal"
+	local _, playerClass = UnitClass("player")
+	local form = GetShapeshiftForm() or 0
+	local useRogue = (playerClass == "ROGUE") or (playerClass == "DRUID" and form == 3)
+	local function ResolveBasePath(isRogueVariant, classKey)
+		classKey = string.lower(classKey or "normal")
+		if classKey == "worldboss" then classKey = "elite" end
+		local baseMap = isRogueVariant and ROGUE_FRAME_TEXTURES or FRAME_TEXTURES
+		if classKey == "rareelite" then
+			return baseMap.rareElite
+		end
+		return baseMap[classKey] or baseMap.default
+	end
+	local path = ResolveBasePath(useRogue, classification)
+	if path and path ~= "" then
+		if frame.texture and frame.texture:GetTexture() ~= path then
+			frame.texture:SetTexture(path)
+		end
+		if frame.portraitMask and frame.portraitMask:GetTexture() ~= path then
+			frame.portraitMask:SetTexture(path)
+		end
+	end
+	-- Ensure classification overlay uses matching rogue/non-rogue mapping
+	local _, playerClass2 = UnitClass("player")
+	local form2 = GetShapeshiftForm() or 0
+	local rogueVariant = (playerClass2 == "ROGUE") or (playerClass2 == "DRUID" and form2 == 3)
+	if profile then
+		profile.classificationTextures = rogueVariant and ROGUE_BOSS_CLASSIFICATION_TEXTURES or
+		BOSS_CLASSIFICATION_TEXTURES
+	end
+	UpdateClassificationOverlay(frame)
+	UpdateTargetPortrait()
+end
+
+-- Update combo points display on target frame
+function UpdateTargetComboPoints()
+	local frame = UFI_TargetFrame
+	if not frame or not UnitExists("target") then
+		return
+	end
+	local cpText = frame.comboPointsText
+	if not cpText then
+		return
+	end
+	local _, playerClass = UnitClass("player")
+	local form = GetShapeshiftForm() or 0
+	local isDruidCat = (playerClass == "DRUID" and form == 3)
+	local isRogue = (playerClass == "ROGUE")
+	local eligible = isRogue or isDruidCat
+	local points = GetComboPoints("player", "target") or GetComboPoints() or 0
+	if eligible then
+		local r, g, b
+		if UFI_PlayerFrame and UFI_PlayerFrame.powerBar then
+			r, g, b = UFI_PlayerFrame.powerBar:GetStatusBarColor()
+		end
+		if not r then r, g, b = 1, 1, 0 end
+		if points and points > 0 then
+			cpText:SetText(points)
+		else
+			cpText:SetText(0)
+		end
+		cpText:SetTextColor(r, g, b)
+		cpText:Show()
+	else
+		cpText:Hide()
+	end
+end
 
 -------------------------------------------------------------------------------
 -- TARGET OF TARGET FRAME UPDATE FUNCTIONS
@@ -3762,6 +3874,8 @@ eventFrame:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
 eventFrame:RegisterEvent("UNIT_LEVEL")
 eventFrame:RegisterEvent("UNIT_CLASSIFICATION_CHANGED")
+eventFrame:RegisterEvent("UNIT_COMBO_POINTS")
+eventFrame:RegisterEvent("PLAYER_COMBO_POINTS")
 eventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
@@ -3784,6 +3898,7 @@ eventFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
+eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 
 local function HandlePlayerLogin()
 	InitializeDatabase()
@@ -3910,6 +4025,7 @@ local function HandlePlayerTargetChanged()
 	UpdateTargetOfTarget()
 	RefreshCastBar("target")
 	UpdatePlayerThreat()
+	UpdateTargetComboPoints()
 end
 
 local function HandlePlayerEnteringWorld()
@@ -3993,6 +4109,11 @@ local function HandleUnitNameOrLevelEvent(_, unit)
 end
 
 local function HandleUnitClassificationChanged(_, unit)
+	if unit == "target" then
+		UpdateTargetClassification()
+	elseif unit == "focus" then
+		UpdateFocusClassification()
+	end
 	if IsBossUnit(unit) then
 		UpdateBossClassification(unit)
 	end
@@ -4161,6 +4282,16 @@ local EVENT_HANDLERS = {
 	UNIT_NAME_UPDATE = HandleUnitNameOrLevelEvent,
 	UNIT_LEVEL = HandleUnitNameOrLevelEvent,
 	UNIT_CLASSIFICATION_CHANGED = HandleUnitClassificationChanged,
+	UNIT_COMBO_POINTS = function()
+		UpdateTargetComboPoints()
+	end,
+	PLAYER_COMBO_POINTS = function()
+		UpdateTargetComboPoints()
+	end,
+	UPDATE_SHAPESHIFT_FORM = function()
+		UpdateTargetClassification()
+		UpdateTargetComboPoints()
+	end,
 	UNIT_AURA = HandleUnitAuraEvent,
 	UNIT_TARGET = HandleUnitTargetEvent,
 	UNIT_TARGETABLE_CHANGED = HandleUnitTargetableChanged,
