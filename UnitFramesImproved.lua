@@ -3831,6 +3831,13 @@ local function HandlePlayerLogin()
 		TargetFrameToT:SetAlpha(0)
 	end
 
+	-- Hide Blizzard's combo point frame
+	if ComboFrame then
+		ComboFrame:UnregisterAllEvents()
+		ComboFrame:Hide()
+		ComboFrame:SetAlpha(0)
+	end
+
 	ApplyPosition("UFI_PlayerFrame")
 	ApplyPosition("UFI_TargetFrame")
 	ApplyPosition("UFI_TargetOfTargetFrame")
