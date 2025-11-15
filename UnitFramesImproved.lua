@@ -2257,7 +2257,7 @@ local function CreatePlayerFrame()
 			DUNGEON_DIFFICULTY = function(level, unitId, addButton)
 				local currentDifficulty = GetDungeonDifficulty()
 				local options = {
-					{ text = "5 Player", value = 1 },
+					{ text = "5 Player",          value = 1 },
 					{ text = "5 Player (Heroic)", value = 2 },
 					{ text = "5 Player (Mythic)", value = 3 },
 				}
@@ -2275,9 +2275,9 @@ local function CreatePlayerFrame()
 			RAID_DIFFICULTY = function(level, unitId, addButton)
 				local currentDifficulty = GetRaidDifficulty()
 				local options = {
-					{ text = "Normal (10-25 Players)", value = 1 },
-					{ text = "Heroic (10-25 Players)", value = 2 },
-					{ text = "Mythic (10-25 Players)", value = 3 },
+					{ text = "Normal (10-25 Players)",   value = 1 },
+					{ text = "Heroic (10-25 Players)",   value = 2 },
+					{ text = "Mythic (10-25 Players)",   value = 3 },
 					{ text = "Ascended (10-25 Players)", value = 4 },
 				}
 
@@ -3344,7 +3344,7 @@ local function BuildTargetOfTargetVisibilityDriver()
 	local mode = tonumber(GetCVar("targetOfTargetMode") or "0") or 0
 	local baseCondition = "[target=targettarget,exists"
 
-	if mode == 1 then -- raid only
+	if mode == 1 then  -- raid only
 		return baseCondition .. ",group:raid] show; hide"
 	elseif mode == 2 then -- party only
 		return baseCondition .. ",group:party] show; hide"
