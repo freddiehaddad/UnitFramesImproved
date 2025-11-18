@@ -795,7 +795,7 @@ local function CreateUnitInteractionDropdown(unit, dropdownName, options)
 		AddButton(level, function(info)
 			info.text = CANCEL
 			info.notCheckable = true
-			info.func = CloseDropDownMenus
+			info.func = function() CloseDropDownMenus() end
 		end)
 	end
 
