@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: UnitFramesImproved
 ## Notes: Enhanced unit frames addon for Ascension's Warcraft Reborn - Custom frames, cast bars, debuff tracking, and interactive menus.
-## Version: 1.0.0
+## Version: 2.0.0
 ## Author: Freddie Haddad
 ## SavedVariables: globalSettings
 ## SavedVariablesPerCharacter: UnitFramesImprovedDB
@@ -9,4 +9,19 @@
 ## X-License: Public Domain
 ## X-Category: Unit Frames
 
+core\init.lua
+core\config.lua
+core\layout.lua
+common\utils.lua
+common\dropdown.lua
+common\positioning.lua
+common\auras.lua
+common\unitframe.lua
+frames\castbar.lua
+frames\boss.lua
+frames\focus.lua
+frames\player.lua
+frames\target.lua
+frames\targetoftarget.lua
+core\events.lua
 UnitFramesImproved.lua

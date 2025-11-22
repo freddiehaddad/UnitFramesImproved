@@ -1,6 +1,6 @@
 # Unit Frames Improved
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange.svg)
 ![Server](https://img.shields.io/badge/server-Ascension%20WR-purple.svg)
 
@@ -177,7 +177,7 @@ Type `/ufi help` in-game to see all commands:
 ## FAQ
 
 **Q: Will this work with other addons?**  
-A: Yes! It's designed to avoid conflicts and works with OmniCC, WeakAuras, and most popular addons.
+A: Yes! It's specifically designed to avoid conflicts and works with OmniCC, WeakAuras, and most popular addons.
 
 **Q: Can I configure colors or sizes?**  
 A: The addon is designed to work perfectly out of the box without configuration. Each frame saves its scale when you move it.
@@ -204,7 +204,7 @@ A: Yes! Positions are saved per character automatically.
 
 **Design & Development**: Custom implementation for Ascension Warcraft Reborn  
 **Textures**: Enhanced from Blizzard's default UI artwork  
-**Inspired by**: Classic WoW unit frame philosophy
+**Inspired by**: ElvUI and oUF design principles
 
 ---
 

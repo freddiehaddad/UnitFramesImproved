@@ -18,8 +18,7 @@
 - `SCREAMING_SNAKE_CASE`: Constants/config (e.g., `FRAME_TEXTURES`, `MAX_BOSS_FRAMES`)
 - Prefix addon frames with `UFI_` (e.g., `UFI_TargetFrame`)
 
-### Tables & Immutability
-- Use `FreezeTable(tbl, "label")` for config tables to prevent mutations
+### Tables & Data
 - Use `table_wipe()` instead of `table.wipe` for sandbox compatibility
 - Forward declare with `local FunctionName` before definition
 
