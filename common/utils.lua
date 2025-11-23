@@ -383,22 +383,22 @@ UFI.Utils = {
 	GetFrameScale = GetFrameScale,
 	SetFrameScale = SetFrameScale,
 	ApplySavedScaleToFrame = ApplySavedScaleToFrame,
-	
+
 	-- Frame setup
 	ApplyFrameHitRect = ApplyFrameHitRect,
 	CreateUnitArtTexture = CreateUnitArtTexture,
 	SetupUnitFrameBase = SetupUnitFrameBase,
-	
+
 	-- Auras
 	CreateAuraIcon = CreateAuraIcon,
 	PositionAuraRow = PositionAuraRow,
 	CreateAuraRow = CreateAuraRow,
-	
+
 	-- Colors & formatting
 	GetUnitColor = GetUnitColor,
 	TruncateNameToFit = TruncateNameToFit,
 	FormatStatusText = FormatStatusText,
-	
+
 	-- Widgets
 	CreateStatusBar = CreateStatusBar,
 	CreateFontString = CreateFontString,

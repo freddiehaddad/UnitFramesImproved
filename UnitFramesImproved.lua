@@ -38,7 +38,8 @@ local unpack = UFI.unpack
 local STATUSBAR_TEXTURE = Layout.STATUSBAR_TEXTURE
 local FONT_DEFAULT = Layout.FONT_DEFAULT
 
-local NAME_TEXT_COLOR_R, NAME_TEXT_COLOR_G, NAME_TEXT_COLOR_B = UFI.NAME_TEXT_COLOR_R, UFI.NAME_TEXT_COLOR_G, UFI.NAME_TEXT_COLOR_B
+local NAME_TEXT_COLOR_R, NAME_TEXT_COLOR_G, NAME_TEXT_COLOR_B =
+	UFI.NAME_TEXT_COLOR_R, UFI.NAME_TEXT_COLOR_G, UFI.NAME_TEXT_COLOR_B
 
 ---@diagnostic disable-next-line: undefined-global
 local MAX_BOSS_FRAMES = MAX_BOSS_FRAMES or 4
@@ -119,7 +120,9 @@ UFI.UnitFrame.Initialize({
 	NAME_TEXT_COLOR_R = NAME_TEXT_COLOR_R,
 	NAME_TEXT_COLOR_G = NAME_TEXT_COLOR_G,
 	NAME_TEXT_COLOR_B = NAME_TEXT_COLOR_B,
-	InitializeFramePosition = function(...) return Positioning.InitializeFramePosition(...) end,
+	InitializeFramePosition = function(...)
+		return Positioning.InitializeFramePosition(...)
+	end,
 	unpack = unpack,
 })
 
@@ -217,7 +220,9 @@ UFI.BossFrames.Initialize({
 	FRAME_TEXTURES = FRAME_TEXTURES,
 	UFI_LAYOUT = UFI_LAYOUT,
 	BOSS_FRAME_STRIDE = BOSS_FRAME_STRIDE,
-	InitializeFramePosition = function(...) return Positioning.InitializeFramePosition(...) end,
+	InitializeFramePosition = function(...)
+		return Positioning.InitializeFramePosition(...)
+	end,
 })
 
 -- Create local references to boss frames functions
@@ -413,7 +418,9 @@ local function HandlePlayerLogin()
 		Positioning.UnlockFrames()
 	end
 
-	UFI.Print("|cff00ff00UnitFramesImproved v" .. ADDON_VERSION .. " loaded!|r Type |cffffcc00/ufi help|r for commands.")
+	UFI.Print(
+		"|cff00ff00UnitFramesImproved v" .. ADDON_VERSION .. " loaded!|r Type |cffffcc00/ufi help|r for commands."
+	)
 
 	UFI_UpdatePlayerHealth()
 	UFI_UpdatePlayerPower()

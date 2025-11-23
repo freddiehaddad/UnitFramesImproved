@@ -176,14 +176,14 @@ function Events.Initialize(deps)
 	ApplyTargetOfTargetVisibilityDriver = deps.ApplyTargetOfTargetVisibilityDriver
 	IsBossUnit = deps.IsBossUnit
 	UpdateAllBossFrames = deps.UpdateAllBossFrames
-	
+
 	-- Note: All Update* and Handle* event handlers are exported as UFI_-prefixed globals by their
 	-- respective frame modules (player, target, focus, boss, targetoftarget, castbar) during their
 	-- Initialize() calls. We access them directly from _G here to avoid namespace collisions.
-	
+
 	-- Create event frame
 	eventFrame = CreateFrame("Frame")
-	
+
 	-- Register all WoW events
 	eventFrame:RegisterEvent("PLAYER_LOGIN")
 	eventFrame:RegisterEvent("PLAYER_LOGOUT")
@@ -234,7 +234,7 @@ function Events.Initialize(deps)
 	eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 	eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 	eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-	
+
 	-- Build event handlers table (must be done after frame modules export their handlers to _G)
 	EVENT_HANDLERS = {
 		PLAYER_LOGIN = deps.HandlePlayerLogin, -- Injected from main file
@@ -290,7 +290,7 @@ function Events.Initialize(deps)
 		UNIT_SPELLCAST_INTERRUPTIBLE = UFI_HandleSpellcastInterruptible, -- From castbar module
 		UNIT_SPELLCAST_NOT_INTERRUPTIBLE = UFI_HandleSpellcastNotInterruptible, -- From castbar module
 	}
-	
+
 	-- Set up event dispatcher
 	-- Table-driven dispatcher keeps the event handler list declarative and easy to audit.
 	eventFrame:SetScript("OnEvent", function(_, event, ...)
@@ -299,7 +299,7 @@ function Events.Initialize(deps)
 			handler(event, ...)
 		end
 	end)
-	
+
 	-- Set up OnUpdate for cast bar polling
 	-- Poll cast bars outside the event system so channel/channel updates continue during fades.
 	eventFrame:SetScript("OnUpdate", function()

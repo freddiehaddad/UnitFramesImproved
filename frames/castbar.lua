@@ -377,7 +377,7 @@ function CastBar.Initialize(deps)
 		FINISHED = "finished",
 		FADING = "fading",
 	}
-	
+
 	-- Export state constants
 	CastBar.STATE = CASTBAR_STATE
 end
@@ -440,7 +440,9 @@ CastBar.FailCast = FailCast
 CastBar.AdjustCastTiming = AdjustCastTiming
 CastBar.HideCastBar = HideCastBar
 CastBar.RefreshCastBar = RefreshCastBar
-CastBar.GetCastBarsByUnit = function() return castBarsByUnit end
+CastBar.GetCastBarsByUnit = function()
+	return castBarsByUnit
+end
 
 -- Spellcast event handlers
 CastBar.HandleSpellcastStart = HandleSpellcastStart

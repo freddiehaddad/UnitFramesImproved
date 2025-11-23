@@ -77,7 +77,9 @@ local function CreateTargetFrame()
 		textures = BOSS_CLASSIFICATION_TEXTURES,
 	})
 	frame.castBar = CreateCastBar(frame, "target", frame.mirrored)
-	if frame.ufProfile then frame.ufProfile.classificationTextures = BOSS_CLASSIFICATION_TEXTURES end
+	if frame.ufProfile then
+		frame.ufProfile.classificationTextures = BOSS_CLASSIFICATION_TEXTURES
+	end
 
 	-- New dedicated combo points text (independent of level text)
 	local cpX, cpY, cpW, cpH = LayoutResolveRect(UFI_LAYOUT.ComboPointsText, frame.mirrored)
@@ -141,18 +143,26 @@ local UpdateTargetAuras
 -- Custom classification update for rogue/druid texture swapping
 local function PerformTargetClassificationUpdate(frame)
 	frame = frame or UFI_TargetFrame
-	if not frame then return end
+	if not frame then
+		return
+	end
 	local profile = GetFrameProfile(frame)
-	if not profile then return end
+	if not profile then
+		return
+	end
 	local unit = profile.unit or "target"
-	if not UnitExists(unit) then return end
+	if not UnitExists(unit) then
+		return
+	end
 	local classification = UnitClassification(unit) or "normal"
 	local _, playerClass = UnitClass("player")
 	local form = GetShapeshiftForm() or 0
 	local useRogue = (playerClass == "ROGUE") or (playerClass == "DRUID" and form == 3)
 	local function ResolveBasePath(isRogueVariant, classKey)
 		classKey = string.lower(classKey or "normal")
-		if classKey == "worldboss" then classKey = "elite" end
+		if classKey == "worldboss" then
+			classKey = "elite"
+		end
 		local baseMap = isRogueVariant and ROGUE_FRAME_TEXTURES or FRAME_TEXTURES
 		if classKey == "rareelite" then
 			return baseMap.rareElite
@@ -173,8 +183,8 @@ local function PerformTargetClassificationUpdate(frame)
 	local form2 = GetShapeshiftForm() or 0
 	local rogueVariant = (playerClass2 == "ROGUE") or (playerClass2 == "DRUID" and form2 == 3)
 	if profile then
-		profile.classificationTextures = rogueVariant and ROGUE_BOSS_CLASSIFICATION_TEXTURES or
-		BOSS_CLASSIFICATION_TEXTURES
+		profile.classificationTextures = rogueVariant and ROGUE_BOSS_CLASSIFICATION_TEXTURES
+			or BOSS_CLASSIFICATION_TEXTURES
 	end
 	UpdateClassificationOverlay(frame)
 	UpdateTargetPortrait()
@@ -205,7 +215,9 @@ local function PerformTargetComboPointsUpdate()
 		if UFI_PlayerFrame and UFI_PlayerFrame.powerBar then
 			r, g, b = UFI_PlayerFrame.powerBar:GetStatusBarColor()
 		end
-		if not r then r, g, b = 1, 1, 0 end
+		if not r then
+			r, g, b = 1, 1, 0
+		end
 		if points and points > 0 then
 			cpText:SetText(points)
 		else
@@ -264,7 +276,7 @@ function TargetFrameModule.Initialize(deps)
 	LayoutResolveRect = Layout.ResolveRect
 	-- Note: SecureUnitButton_OnLoad is accessed as Blizzard global, not injected
 	CreateFontString = deps.Utils.CreateFontString
-	
+
 	-- Cache factory functions
 	CreateUnitFrame = UnitFrameFactory.CreateUnitFrame
 	ApplyUnitFrameProfileDefaults = UnitFrameFactory.ApplyUnitFrameProfileDefaults
@@ -278,7 +290,7 @@ function TargetFrameModule.Initialize(deps)
 	UpdateUnitFrameLevel = UnitFrameFactory.UpdateUnitFrameLevel
 	UpdateClassificationOverlay = UnitFrameFactory.UpdateClassificationOverlay
 	GetFrameProfile = UnitFrameFactory.GetFrameProfile
-	
+
 	-- Create updater wrappers (must be done after dependencies are injected)
 	UpdateTargetHealth = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFrameHealth)
 	UpdateTargetPower = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetFrame, UpdateUnitFramePower)
@@ -288,7 +300,7 @@ function TargetFrameModule.Initialize(deps)
 	UpdateTargetClassification = PerformTargetClassificationUpdate
 	UpdateTargetComboPoints = PerformTargetComboPointsUpdate
 	UpdateTargetAuras = PerformTargetAurasUpdate
-	
+
 	-- Export updaters globally for event handlers (after they're created)
 	_G.UFI_UpdateTargetHealth = UpdateTargetHealth
 	_G.UFI_UpdateTargetPower = UpdateTargetPower

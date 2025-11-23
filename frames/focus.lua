@@ -133,7 +133,7 @@ function FocusFrame.Initialize(deps)
 	UpdateUnitAuras = deps.UpdateUnitAuras
 	FRAME_TEXTURES = deps.FRAME_TEXTURES
 	BOSS_CLASSIFICATION_TEXTURES = deps.BOSS_CLASSIFICATION_TEXTURES
-	
+
 	-- Cache factory functions
 	CreateUnitFrame = UnitFrameFactory.CreateUnitFrame
 	ApplyUnitFrameProfileDefaults = UnitFrameFactory.ApplyUnitFrameProfileDefaults
@@ -146,7 +146,7 @@ function FocusFrame.Initialize(deps)
 	UpdateUnitFrameName = UnitFrameFactory.UpdateUnitFrameName
 	UpdateUnitFrameLevel = UnitFrameFactory.UpdateUnitFrameLevel
 	UpdateClassificationOverlay = UnitFrameFactory.UpdateClassificationOverlay
-	
+
 	-- Create updater wrappers (must be done after dependencies are injected)
 	UpdateFocusHealth = UnitFrameFactory.MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFrameHealth)
 	UpdateFocusPower = UnitFrameFactory.MakeUnitFrameUpdater(GetFocusFrame, UpdateUnitFramePower)
@@ -157,7 +157,7 @@ function FocusFrame.Initialize(deps)
 	UpdateFocusAuras = UnitFrameFactory.MakeUnitFrameUpdater(GetFocusFrame, function(frame)
 		UpdateUnitAuras("focus", frame)
 	end)
-	
+
 	-- Export updaters globally for event handlers (after they're created)
 	_G.UFI_UpdateFocusHealth = UpdateFocusHealth
 	_G.UFI_UpdateFocusPower = UpdateFocusPower

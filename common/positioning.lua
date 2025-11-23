@@ -1100,23 +1100,23 @@ UFI.Positioning = {
 	Initialize = Initialize,
 	InitializeDatabase = InitializeDatabase,
 	InitializeFramePosition = InitializeFramePosition,
-	
+
 	-- Position management
 	ApplyPosition = ApplyPosition,
 	ResetFramePosition = ResetFramePosition,
 	SaveAllPositions = SaveAllPositions,
-	
+
 	-- Overlay management
 	CreateOverlay = CreateOverlay,
 	UpdateOverlayForFrame = UpdateOverlayForFrame,
-	
+
 	-- Focus scale
 	ApplyFocusFrameScale = ApplyFocusFrameScale,
-	
+
 	-- Combat handlers
 	OnCombatStart = OnCombatStart,
 	OnCombatEnd = OnCombatEnd,
-	
+
 	-- Lock/Unlock
 	UnlockFrames = UnlockFrames,
 	LockFrames = LockFrames,
