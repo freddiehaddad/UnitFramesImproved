@@ -76,57 +76,6 @@ end
 -- VISIBILITY DRIVER SYSTEM
 -------------------------------------------------------------------------------
 
--- When combat lockdown is active we cannot touch the frame's state driver, so we
--- mimic the visibility change with alpha/mouse toggles and remember the desired state.
-local function ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
-	if not frame then
-		return
-	end
-
-	local fallback = frame.ufCombatFallback
-
-	if InCombatLockdown() then
-		if not fallback then
-			fallback = {
-				alpha = frame:GetAlpha() or 1,
-				mouseEnabled = frame:IsMouseEnabled(),
-			}
-			frame.ufCombatFallback = fallback
-		end
-		fallback.wantsDriver = wantsDriver
-		if not wantsDriver then
-			frame:SetAlpha(0)
-		else
-			frame:SetAlpha(fallback.alpha or 1)
-		end
-		return
-	end
-
-	if wantsDriver then
-		if fallback then
-			frame:SetAlpha(fallback.alpha or 1)
-			local mouseEnabled = fallback.mouseEnabled
-			if mouseEnabled == nil then
-				mouseEnabled = true
-			end
-			frame:EnableMouse(mouseEnabled)
-			frame.ufCombatFallback = nil
-		else
-			frame:SetAlpha(1)
-			frame:EnableMouse(true)
-		end
-	else
-		if not fallback then
-			frame.ufCombatFallback = {
-				alpha = frame:GetAlpha() or 1,
-				mouseEnabled = frame:IsMouseEnabled(),
-			}
-		end
-		frame:SetAlpha(0)
-		frame:EnableMouse(false)
-	end
-end
-
 local function DriverWantsTargetOfTargetShown(driver)
 	return type(driver) == "string" and driver ~= "hide"
 end
@@ -141,7 +90,7 @@ local function BuildTargetOfTargetVisibilityDriver()
 	local mode = tonumber(GetCVar("targetOfTargetMode") or "0") or 0
 	local baseCondition = "[target=targettarget,exists"
 
-	if mode == 1 then  -- raid only
+	if mode == 1 then -- raid only
 		return baseCondition .. ",group:raid] show; hide"
 	elseif mode == 2 then -- party only
 		return baseCondition .. ",group:party] show; hide"
@@ -173,9 +122,6 @@ local function ApplyTargetOfTargetVisibilityDriver()
 	end
 
 	if not driverChanged and not activationChanged then
-		if frame.ufCombatFallback then
-			ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
-		end
 		pendingTargetOfTargetDriver = nil
 		pendingTargetOfTargetDriverActivation = false
 		return
@@ -184,14 +130,7 @@ local function ApplyTargetOfTargetVisibilityDriver()
 	if InCombatLockdown() then
 		pendingTargetOfTargetDriver = driver
 		pendingTargetOfTargetDriverActivation = wantsDriver
-		ApplyTargetOfTargetCombatFallback(frame, wantsDriver)
 		return
-	end
-
-	if frame.ufCombatFallback then
-		local previousAlpha = frame.ufCombatFallback.alpha
-		frame:SetAlpha(previousAlpha or 1)
-		frame.ufCombatFallback = nil
 	end
 
 	if targetOfTargetDriverActive then
@@ -200,13 +139,9 @@ local function ApplyTargetOfTargetVisibilityDriver()
 	end
 
 	if wantsDriver then
-		frame:EnableMouse(true)
-		frame:SetAlpha(1)
 		RegisterStateDriver(frame, "visibility", driver)
 		targetOfTargetDriverActive = true
 	else
-		frame:EnableMouse(false)
-		frame:SetAlpha(1)
 		frame:Hide()
 		targetOfTargetDriverActive = false
 	end
@@ -219,10 +154,6 @@ end
 -- Ensure our manual refreshes respect both the secure driver state and Blizzard heuristics.
 local function ShouldShowTargetOfTarget()
 	local frame = UFI_TargetOfTargetFrame
-
-	if frame and frame.ufCombatFallback and not pendingTargetOfTargetDriverActivation then
-		return false
-	end
 
 	if pendingTargetOfTargetDriverActivation then
 		return true
@@ -283,7 +214,7 @@ end
 function TargetOfTargetFrame.Initialize(deps)
 	-- Inject dependencies
 	UnitFrameFactory = deps.UnitFrameFactory
-	
+
 	-- Cache factory functions
 	CreateUnitFrame = UnitFrameFactory.CreateUnitFrame
 	ApplyUnitFrameProfileDefaults = UnitFrameFactory.ApplyUnitFrameProfileDefaults
@@ -292,14 +223,15 @@ function TargetOfTargetFrame.Initialize(deps)
 	UpdateUnitFramePortrait = UnitFrameFactory.UpdateUnitFramePortrait
 	UpdateUnitFrameName = UnitFrameFactory.UpdateUnitFrameName
 	UpdateUnitFrameLevel = UnitFrameFactory.UpdateUnitFrameLevel
-	
+
 	-- Create updater wrappers (must be done after dependencies are injected)
 	UpdateTargetOfTargetHealth = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameHealth)
 	UpdateTargetOfTargetPower = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFramePower)
-	UpdateTargetOfTargetPortrait = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFramePortrait)
+	UpdateTargetOfTargetPortrait =
+		UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFramePortrait)
 	UpdateTargetOfTargetName = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameName)
 	UpdateTargetOfTargetLevel = UnitFrameFactory.MakeUnitFrameUpdater(GetTargetOfTargetFrame, UpdateUnitFrameLevel)
-	
+
 	-- Export updaters globally for event handlers (after they're created)
 	_G.UFI_UpdateTargetOfTargetHealth = UpdateTargetOfTargetHealth
 	_G.UFI_UpdateTargetOfTargetPower = UpdateTargetOfTargetPower
