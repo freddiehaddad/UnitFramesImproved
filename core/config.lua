@@ -69,6 +69,7 @@ UFI.SELF_BUFF_EXCLUSIONS = {
 	[91814] = true,
 	[170021] = true,
 	[498752] = true,
+	[984540] = true, -- Dread Harvest Golem's Raven Familiar
 	[993943] = true, -- Titan Scroll: Norgannon
 	[993955] = true, -- Titan Scroll: Khaz'goroth
 	[993957] = true, -- Titan Scroll: Eonar
@@ -76,6 +77,7 @@ UFI.SELF_BUFF_EXCLUSIONS = {
 	[993961] = true, -- Titan Scroll: Golganneth
 	[997615] = true, -- Resting
 	[997616] = true, -- Well Rested
+	[9930942] = true, -- Potion of Repuation
 	[9931032] = true,
 }
 

@@ -13,9 +13,6 @@
 
 local UFI = UnitFramesImproved
 
--- Create local references only for frequently used functions to reduce lookups
-local table_wipe = UFI.table_wipe
-
 -------------------------------------------------------------------------------
 -- ADDON INITIALIZATION
 -------------------------------------------------------------------------------
@@ -32,16 +29,12 @@ local AURA_ICON_SPACING = Layout.AURA_ICON_SPACING
 local AURA_ROW_VERTICAL_SPACING = Layout.AURA_ROW_VERTICAL_SPACING
 local AURA_HITRECT_PADDING = Layout.AURA_HITRECT_PADDING
 
----@diagnostic disable-next-line: deprecated
-local unpack = UFI.unpack
-
 local STATUSBAR_TEXTURE = Layout.STATUSBAR_TEXTURE
 local FONT_DEFAULT = Layout.FONT_DEFAULT
 
 local NAME_TEXT_COLOR_R, NAME_TEXT_COLOR_G, NAME_TEXT_COLOR_B =
 	UFI.NAME_TEXT_COLOR_R, UFI.NAME_TEXT_COLOR_G, UFI.NAME_TEXT_COLOR_B
 
----@diagnostic disable-next-line: undefined-global
 local MAX_BOSS_FRAMES = MAX_BOSS_FRAMES or 4
 local DEFAULT_BOSS_FRAME_SCALE = Layout.DEFAULT_BOSS_FRAME_SCALE
 local DEFAULT_FRAME_SCALES = Layout.DEFAULT_FRAME_SCALES
@@ -123,7 +116,6 @@ UFI.UnitFrame.Initialize({
 	InitializeFramePosition = function(...)
 		return Positioning.InitializeFramePosition(...)
 	end,
-	unpack = unpack,
 })
 
 -- Create local references to unit frame factory functions
