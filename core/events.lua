@@ -305,14 +305,4 @@ function Events.Initialize(deps)
 			handler(event, ...)
 		end
 	end)
-
-	-- Set up OnUpdate for cast bar polling
-	-- Poll cast bars outside the event system so channel/channel updates continue during fades.
-	eventFrame:SetScript("OnUpdate", function()
-		for _, castBar in pairs(deps.castBarsByUnit) do
-			if castBar.state ~= deps.CASTBAR_STATE.HIDDEN then
-				deps.UpdateCastBar(castBar)
-			end
-		end
-	end)
 end

@@ -195,8 +195,6 @@ local FailCast = CastBar.FailCast
 local AdjustCastTiming = CastBar.AdjustCastTiming
 local HideCastBar = CastBar.HideCastBar
 local RefreshCastBar = CastBar.RefreshCastBar
-local UpdateCastBar = CastBar.UpdateCastBar
-local castBarsByUnit = CastBar.GetCastBarsByUnit()
 local CASTBAR_STATE = CastBar.STATE
 
 -------------------------------------------------------------------------------
@@ -446,7 +444,4 @@ UFI.Events.Initialize({
 	ApplyTargetOfTargetVisibilityDriver = ApplyTargetOfTargetVisibilityDriver,
 	IsBossUnit = IsBossUnit,
 	UpdateAllBossFrames = UpdateAllBossFrames,
-	castBarsByUnit = castBarsByUnit,
-	CASTBAR_STATE = CASTBAR_STATE,
-	UpdateCastBar = UpdateCastBar,
 })

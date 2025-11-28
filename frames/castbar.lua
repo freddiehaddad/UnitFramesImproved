@@ -30,6 +30,9 @@ local FONT_DEFAULT
 local CASTBAR_STATE = {}
 local castBarsByUnit = {}
 
+-- Forward declaration
+local OnUpdateCastBar
+
 -------------------------------------------------------------------------------
 -- CAST BAR CREATION
 -------------------------------------------------------------------------------
@@ -141,6 +144,7 @@ local function CreateCastBar(parent, unit, mirrored)
 	castBar.fadeStartTime = 0
 	castBar.spellName = ""
 	castBar.spellTexture = ""
+	castBar.OnUpdate = OnUpdateCastBar
 
 	castBarsByUnit[unit] = castBar
 	return castBar
@@ -223,6 +227,19 @@ local function UpdateCastBar(castBar)
 end
 
 -------------------------------------------------------------------------------
+-- CAST BAR ON UPDATE SCRIPT
+-------------------------------------------------------------------------------
+
+OnUpdateCastBar = function(self, elapsed)
+	UpdateCastBar(self)
+
+	-- Auto-disable OnUpdate when cast bar becomes hidden
+	if self.state == CASTBAR_STATE.HIDDEN then
+		self:SetScript("OnUpdate", nil)
+	end
+end
+
+-------------------------------------------------------------------------------
 -- CAST BAR STATE MANAGEMENT
 -------------------------------------------------------------------------------
 
@@ -262,6 +279,7 @@ local function BeginCast(unit, isChannel)
 	-- Color is set by UpdateCastBar based on interruptibility
 	castBar:Show()
 	UpdateCastBar(castBar)
+	castBar:SetScript("OnUpdate", castBar.OnUpdate)
 end
 
 local function StopCast(unit)
@@ -303,6 +321,7 @@ local function FailCast(unit, wasInterrupted)
 		castBar:Show()
 		castBar.state = CASTBAR_STATE.FINISHED
 		castBar.holdUntil = GetTime() + 0.5
+		castBar:SetScript("OnUpdate", castBar.OnUpdate)
 	end
 end
 
@@ -346,6 +365,7 @@ local function HideCastBar(unit)
 		castBar.iconBorder:SetVertexColor(1, 1, 1) -- Reset icon border to white
 	end
 	castBar.notInterruptible = false
+	castBar:SetScript("OnUpdate", nil)
 end
 
 local function RefreshCastBar(unit)
