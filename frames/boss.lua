@@ -174,6 +174,22 @@ local function CreateBossFrames()
 		RegisterUnitWatch(frame)
 		frame:Hide()
 
+		-- Add OnUpdate polling for boss frames (handles dead player updates)
+		-- Based on ElvUI's enableTargetUpdate pattern - polls every 0.5s when boss exists
+		frame.onUpdateFrequency = 0.5
+		local elapsed = 0
+		frame:SetScript("OnUpdate", function(self, delta)
+			if not self.unit then
+				return -- RegisterUnitWatch cleared unit - no boss exists
+			end
+
+			elapsed = elapsed + delta
+			if elapsed >= self.onUpdateFrequency then
+				UpdateBossFrame(self.unit)
+				elapsed = 0
+			end
+		end)
+
 		frame.castBar = CreateCastBar(frame, unit, frame.mirrored)
 		frame.currentTexture = FRAME_TEXTURES.default
 		ApplyUnitFrameProfileDefaults(frame, {

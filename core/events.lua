@@ -23,7 +23,6 @@ local OnCombatStart
 local OnCombatEnd
 local SaveAllPositions
 local ApplyTargetOfTargetVisibilityDriver
-local IsBossUnit
 local UpdateAllBossFrames
 
 -------------------------------------------------------------------------------
@@ -56,8 +55,6 @@ local function HandleUnitHealthEvent(_, unit)
 		UFI_UpdateTargetHealth()
 	elseif unit == "focus" then
 		UFI_UpdateFocusHealth()
-	elseif IsBossUnit(unit) then
-		UFI_UpdateBossHealth(unit)
 	end
 
 	-- targettarget is "eventless" - events rarely fire with unit="targettarget"
@@ -74,8 +71,6 @@ local function HandleUnitPowerEvent(_, unit)
 		UFI_UpdateTargetPower()
 	elseif unit == "focus" then
 		UFI_UpdateFocusPower()
-	elseif IsBossUnit(unit) then
-		UFI_UpdateBossPower(unit)
 	end
 
 	if UnitIsUnit(unit, "targettarget") then
@@ -90,8 +85,6 @@ local function HandleUnitPortraitEvent(_, unit)
 		UFI_UpdateTargetPortrait()
 	elseif unit == "focus" then
 		UFI_UpdateFocusPortrait()
-	elseif IsBossUnit(unit) then
-		UFI_UpdateBossPortrait(unit)
 	end
 end
 
@@ -110,10 +103,6 @@ local function HandleUnitNameOrLevelEvent(_, unit)
 	elseif unit == "targettarget" then
 		UFI_UpdateTargetOfTargetName()
 		UFI_UpdateTargetOfTargetLevel()
-	elseif IsBossUnit(unit) then
-		UFI_UpdateBossName(unit)
-		UFI_UpdateBossLevel(unit)
-		UFI_UpdateBossClassification(unit)
 	end
 end
 
@@ -122,9 +111,6 @@ local function HandleUnitClassificationChanged(_, unit)
 		UFI_UpdateTargetClassification()
 	elseif unit == "focus" then
 		UFI_UpdateFocusClassification()
-	end
-	if IsBossUnit(unit) then
-		UFI_UpdateBossClassification(unit)
 	end
 end
 
@@ -180,7 +166,6 @@ function Events.Initialize(deps)
 	OnCombatEnd = deps.OnCombatEnd
 	SaveAllPositions = deps.SaveAllPositions
 	ApplyTargetOfTargetVisibilityDriver = deps.ApplyTargetOfTargetVisibilityDriver
-	IsBossUnit = deps.IsBossUnit
 	UpdateAllBossFrames = deps.UpdateAllBossFrames
 
 	-- Note: All Update* and Handle* event handlers are exported as UFI_-prefixed globals by their
