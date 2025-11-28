@@ -59,6 +59,12 @@ local function HandleUnitHealthEvent(_, unit)
 	elseif IsBossUnit(unit) then
 		UFI_UpdateBossHealth(unit)
 	end
+
+	-- targettarget is "eventless" - events rarely fire with unit="targettarget"
+	-- Instead check if the unit IS the current targettarget
+	if UnitIsUnit(unit, "targettarget") then
+		UFI_UpdateTargetOfTargetHealth()
+	end
 end
 
 local function HandleUnitPowerEvent(_, unit)
