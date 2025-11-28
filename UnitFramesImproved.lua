@@ -195,7 +195,6 @@ local FailCast = CastBar.FailCast
 local AdjustCastTiming = CastBar.AdjustCastTiming
 local HideCastBar = CastBar.HideCastBar
 local RefreshCastBar = CastBar.RefreshCastBar
-local CASTBAR_STATE = CastBar.STATE
 
 -------------------------------------------------------------------------------
 -- BOSS FRAMES MODULE INITIALIZATION
@@ -205,7 +204,7 @@ local CASTBAR_STATE = CastBar.STATE
 UFI.BossFrames.Initialize({
 	UnitFrameFactory = UFI.UnitFrame,
 	CreateCastBar = CreateCastBar,
-	CASTBAR_STATE = CASTBAR_STATE,
+	HideCastBar = HideCastBar,
 	BOSS_CLASSIFICATION_TEXTURES = BOSS_CLASSIFICATION_TEXTURES,
 	FRAME_TEXTURES = FRAME_TEXTURES,
 	UFI_LAYOUT = UFI_LAYOUT,

@@ -36,7 +36,7 @@ local UpdateUnitFrameName
 local UpdateUnitFrameLevel
 
 local CreateCastBar
-local CASTBAR_STATE
+local HideCastBar
 
 local BOSS_CLASSIFICATION_TEXTURES
 local FRAME_TEXTURES
@@ -90,15 +90,8 @@ local function ClearBossFrame(frame)
 	frame.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	frame.portrait:SetTexture(nil)
 
-	if frame.castBar then
-		frame.castBar:Hide()
-		frame.castBar:SetAlpha(1)
-		frame.castBar:SetValue(0)
-		frame.castBar.text:SetText("")
-		frame.castBar.time:SetText("")
-		frame.castBar.icon:SetTexture(nil)
-		frame.castBar.state = CASTBAR_STATE.HIDDEN
-		frame.castBar.holdUntil = 0
+	if frame.castBar and frame.unit then
+		HideCastBar(frame.unit)
 	end
 
 	frame.currentTexture = nil
@@ -227,7 +220,7 @@ function BossFrames.Initialize(deps)
 	UpdateUnitFrameLevel = UnitFrameFactory.UpdateUnitFrameLevel
 
 	CreateCastBar = deps.CreateCastBar
-	CASTBAR_STATE = deps.CASTBAR_STATE
+	HideCastBar = deps.HideCastBar
 
 	BOSS_CLASSIFICATION_TEXTURES = deps.BOSS_CLASSIFICATION_TEXTURES
 	FRAME_TEXTURES = deps.FRAME_TEXTURES
