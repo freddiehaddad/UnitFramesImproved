@@ -210,13 +210,13 @@ local function UpdateCastBar(castBar)
 			castBar:SetStatusBarColor(0.5, 0.5, 0.5)
 			castBar.border:SetVertexColor(0.7, 0, 0) -- Red border for uninterruptible
 			if castBar.iconBorder then
-				castBar.iconBorder:SetVertexColor(0.5, 0, 0.3) -- Purple icon border
+				castBar.iconBorder:SetVertexColor(0.7, 0, 0) -- Red icon border
 			end
 		else
 			castBar:SetStatusBarColor(1, 0.7, 0)
 			castBar.border:SetVertexColor(0, 1, 0) -- Green border for interruptible
 			if castBar.iconBorder then
-				castBar.iconBorder:SetVertexColor(1, 0.9, 0) -- Gold icon border
+				castBar.iconBorder:SetVertexColor(0, 1, 0) -- Green icon border
 			end
 		end
 	end
