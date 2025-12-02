@@ -1,6 +1,6 @@
 --[[
 	Boss Frames Module
-	
+
 	Manages all boss unit frames (boss1-boss4) including creation, updates,
 	and classification handling.
 ]]

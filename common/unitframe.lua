@@ -1,6 +1,6 @@
 --[[
 	UnitFramesImproved - Unit Frame Factory
-	
+
 	Provides factory functions for creating unit frames and shared update functions
 	that are used across all frame types (player, target, focus, ToT, boss).
 ]]

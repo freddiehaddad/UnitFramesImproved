@@ -1,8 +1,8 @@
 --[[----------------------------------------------------------------------------
 	UnitFramesImproved - Focus Frame
-	
+
 	Creates and manages the focus unit frame.
-	
+
 	Dependencies:
 	- UnitFrameFactory (CreateUnitFrame, ApplyUnitFrameProfileDefaults, etc.)
 	- CastBar (CreateCastBar)

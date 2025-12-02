@@ -1,8 +1,8 @@
 --[[----------------------------------------------------------------------------
 	UnitFramesImproved - Target Frame
-	
+
 	Creates and manages the target unit frame.
-	
+
 	Dependencies:
 	- UnitFrameFactory (CreateUnitFrame, ApplyUnitFrameProfileDefaults, etc.)
 	- CastBar (CreateCastBar, RefreshCastBar)

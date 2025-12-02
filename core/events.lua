@@ -1,6 +1,6 @@
 --[[
 	Events Module - Event handling and dispatching system
-	
+
 	This module manages all WoW event registration and dispatching for the addon's
 	runtime behavior (excluding initial login/startup).
 ]]

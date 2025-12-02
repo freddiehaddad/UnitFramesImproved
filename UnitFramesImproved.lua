@@ -1,6 +1,6 @@
 --[[
 	UnitFramesImproved - Custom Unit Frames for WotLK
-	
+
 	This addon creates completely custom unit frames independent of Blizzard's
 	default frames to avoid taint issues while providing enhanced visuals.
 ]]

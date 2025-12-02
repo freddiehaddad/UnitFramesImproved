@@ -1,10 +1,10 @@
 --[[----------------------------------------------------------------------------
 	UnitFramesImproved - Target of Target Frame
-	
+
 	Creates and manages the target-of-target unit frame, including visibility
-	driver system that respects Blizzard's showTargetOfTarget and 
+	driver system that respects Blizzard's showTargetOfTarget and
 	targetOfTargetMode CVars with combat fallback handling.
-	
+
 	Dependencies:
 	- UnitFrameFactory (CreateUnitFrame, ApplyUnitFrameProfileDefaults, etc.)
 ------------------------------------------------------------------------------]]

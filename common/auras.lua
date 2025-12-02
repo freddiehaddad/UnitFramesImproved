@@ -1,6 +1,6 @@
 --[[
 	Auras Module
-	
+
 	Manages buff and debuff display for target and focus frames.
 	Player frame has separate self-buff logic in the main file.
 ]]

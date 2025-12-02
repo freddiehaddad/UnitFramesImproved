@@ -1,6 +1,6 @@
 --[[
 	UnitFramesImproved - Cast Bar System
-	
+
 	Manages cast bar state, rendering, and updates for all unit frames.
 	Includes channeling, regular casts, interrupts, and failures.
 ]]
