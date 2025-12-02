@@ -188,8 +188,9 @@ local function UpdatePlayerAuras()
 
 		local isPlayerAura = (caster == "player" or caster == "pet" or caster == "vehicle")
 		local isNotExcluded = not SELF_BUFF_EXCLUSIONS[spellId]
+		local isShortDuration = (duration and duration > 0 and duration <= 120)
 
-		if isPlayerAura and isNotExcluded then
+		if isPlayerAura and isNotExcluded and isShortDuration then
 			shown = shown + 1
 			if shown > iconCount then
 				break
