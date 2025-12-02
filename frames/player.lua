@@ -1,12 +1,12 @@
 --[[----------------------------------------------------------------------------
 	UnitFramesImproved - Player Frame
-	
+
 	Creates and manages the player unit frame.
-	
+
 	Dependencies:
 	- UnitFrameFactory (CreateUnitFrame, ApplyUnitFrameProfileDefaults, etc.)
 	- Utils (CreateAuraRow)
-	- Config (FRAME_TEXTURES, PLAYER_TEXTURE_COLORS, SELF_BUFF_EXCLUSIONS)
+	- Config (FRAME_TEXTURES, PLAYER_TEXTURE_COLORS)
 ------------------------------------------------------------------------------]]
 
 ---@diagnostic disable: undefined-global
@@ -20,7 +20,6 @@ local UnitFrameFactory
 local Utils
 local FRAME_TEXTURES
 local PLAYER_TEXTURE_COLORS
-local SELF_BUFF_EXCLUSIONS
 
 -- Local references to factory functions
 local CreateUnitFrame
@@ -187,10 +186,9 @@ local function UpdatePlayerAuras()
 		end
 
 		local isPlayerAura = (caster == "player" or caster == "pet" or caster == "vehicle")
-		local isNotExcluded = not SELF_BUFF_EXCLUSIONS[spellId]
 		local isShortDuration = (duration and duration > 0 and duration <= 120)
 
-		if isPlayerAura and isNotExcluded and isShortDuration then
+		if isPlayerAura and isShortDuration then
 			shown = shown + 1
 			if shown > iconCount then
 				break
@@ -228,7 +226,6 @@ function PlayerFrameModule.Initialize(deps)
 	Utils = deps.Utils
 	FRAME_TEXTURES = deps.FRAME_TEXTURES
 	PLAYER_TEXTURE_COLORS = deps.PLAYER_TEXTURE_COLORS
-	SELF_BUFF_EXCLUSIONS = deps.SELF_BUFF_EXCLUSIONS
 
 	-- Extract factory functions
 	CreateUnitFrame = UnitFrameFactory.CreateUnitFrame

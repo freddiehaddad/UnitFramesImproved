@@ -85,8 +85,6 @@ local CreateBossFrames
 local UpdateBossFrame
 local UpdateAllBossFrames
 
-local SELF_BUFF_EXCLUSIONS = UFI.SELF_BUFF_EXCLUSIONS
-
 -- Positioning module reference (will be initialized after UpdatePlayerLevel is defined)
 local Positioning = UFI.Positioning
 local InitializeFramePosition
@@ -159,7 +157,6 @@ UFI.PlayerFrame.Initialize({
 	Utils = Utils,
 	FRAME_TEXTURES = FRAME_TEXTURES,
 	PLAYER_TEXTURE_COLORS = PLAYER_TEXTURE_COLORS,
-	SELF_BUFF_EXCLUSIONS = SELF_BUFF_EXCLUSIONS,
 })
 
 -- Create local references to player frame functions

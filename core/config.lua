@@ -55,33 +55,6 @@ UFI.ROGUE_BOSS_CLASSIFICATION_TEXTURES = {
 }
 
 -------------------------------------------------------------------------------
--- BUFF/DEBUFF EXCLUSIONS
--------------------------------------------------------------------------------
-
--- Self-cast buffs to exclude from the player frame's self-buff display
-UFI.SELF_BUFF_EXCLUSIONS = {
-	[72221] = true, -- Luck of the Draw
-	[91769] = true, -- Keeper's Scroll: Steadfast
-	[91794] = true,
-	[91796] = true,
-	[91803] = true, -- Keeper's Scroll: Ghost Runner
-	[91810] = true, -- Keeper's Scroll: Gathering Speed
-	[91814] = true,
-	[170021] = true,
-	[498752] = true,
-	[984540] = true, -- Dread Harvest Golem's Raven Familiar
-	[993943] = true, -- Titan Scroll: Norgannon
-	[993955] = true, -- Titan Scroll: Khaz'goroth
-	[993957] = true, -- Titan Scroll: Eonar
-	[993959] = true, -- Titan Scroll: Aggramar
-	[993961] = true, -- Titan Scroll: Golganneth
-	[997615] = true, -- Resting
-	[997616] = true, -- Well Rested
-	[9930942] = true, -- Potion of Repuation
-	[9931032] = true,
-}
-
--------------------------------------------------------------------------------
 -- RAID TARGET ICONS
 -------------------------------------------------------------------------------
 
